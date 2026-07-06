@@ -123,6 +123,9 @@ class Mirror:
 
         self.bequest_from_the_previous_game = False
 
+        # 战斗部署阶段计时（用于复盘异常延迟）
+        self._battle_deploy_start = None
+
     def _time_call(self, fn, *args, **kwargs):
         """调用 fn 并返回 (result, elapsed_time)，用于显式计时替代装饰器返回值。"""
         start = time.time()
@@ -337,6 +340,9 @@ class Mirror:
 
             # 战斗配队的情况
             if auto.find_element("teams/identify_assets.png"):
+                if self._battle_deploy_start is None:
+                    self._battle_deploy_start = time.time()
+                    log.info("开始 战斗部署")
                 # 如果第一次启动脚本，还没进行编队，就先编队
                 if self.first_battle:
                     team_formation(self.sinner_team)
@@ -356,9 +362,14 @@ class Mirror:
                     # 如果还有至少5人能战斗就继续，不然就退出重开
                     if continue_mirror is False and self.first_battle is False:
                         self.re_start()
+                        self._battle_deploy_start = None
                 if auto.click_element("battle/chaim_to_battle_assets.png") or auto.click_element(
                     "battle/normal_to_battle_assets.png"
                 ):
+                    if self._battle_deploy_start is not None:
+                        elapsed = time.time() - self._battle_deploy_start
+                        log.info(f"结束 战斗部署 耗时:{elapsed:.1f}s")
+                        self._battle_deploy_start = None
                     retry()
                     continue
 

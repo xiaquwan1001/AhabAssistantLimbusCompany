@@ -4,6 +4,7 @@ from PIL import Image
 
 from module.automation import auto
 from module.config import TeamSetting, cfg
+from module.decorator.decorator import begin_and_finish_time_log
 from module.logger import log
 from module.ocr import ocr
 from tasks import all_sinners_name, all_sinners_name_zh, all_systems, system_cn_zh
@@ -70,6 +71,7 @@ class Shop:
     class RestartGame(Exception):
         pass
 
+    @begin_and_finish_time_log(task_name="升级EGO饰品")
     def ego_gift_to_power_up(self):
         loop_count = 30
         auto.model = "clam"
@@ -97,6 +99,7 @@ class Shop:
                 log.error("无法升级ego饰品")
                 break
 
+    @begin_and_finish_time_log(task_name="饰品购买")
     def buy_gifts(self):
         def sort_points(points, complete=0, threshold=40):
             # 第一步：先按 X 坐标排好（左右顺序）
@@ -344,6 +347,7 @@ class Shop:
 
             break
 
+    @begin_and_finish_time_log(task_name="激进合成")
     def fuse_useless_gifts_aggressive(self):
         """合成无用饰品_激进版"""
 
@@ -514,6 +518,7 @@ class Shop:
         if retry() is False:
             raise self.RestartGame()
 
+    @begin_and_finish_time_log(task_name="普通合成")
     def fuse_useless_gifts(self):
         """合成无用饰品"""
         scale = cfg.set_win_size / 1440
@@ -780,6 +785,7 @@ class Shop:
                 msg = f"成功合成{self.system}体系的公式饰品{fusion_gift if fusion_gift else ''}"
                 log.debug(msg)
 
+    @begin_and_finish_time_log(task_name="出售饰品")
     def sell_gifts(self):
         scale = cfg.set_win_size / 1440
 
@@ -872,6 +878,7 @@ class Shop:
             sleep(1)
             break
 
+    @begin_and_finish_time_log(task_name="进入合成界面")
     def enter_fuse(self):
         loop_count = 15
         auto.model = "clam"
@@ -919,6 +926,7 @@ class Shop:
 
         return True
 
+    @begin_and_finish_time_log(task_name="商店合成")
     def fuse_gift(self):
         # 激进合成
         if self.fuse_aggressive_switch and not self.only_system_fuse:
@@ -959,6 +967,7 @@ class Shop:
             self.fuse_system_gifts()
             auto.mouse_click_blank(times=3)
 
+    @begin_and_finish_time_log(task_name="治疗罪人")
     def heal_sinner(self):
         # 全体治疗
         loop_count = 10
@@ -1006,6 +1015,7 @@ class Shop:
             if retry() is False:
                 raise self.RestartGame()
 
+    @begin_and_finish_time_log(task_name="升级饰品")
     def enhance_gifts(self):
         _ENHANCE_SCAN_REGION_REL = {
             "left": 0.5151,
@@ -1293,6 +1303,7 @@ class Shop:
         # 如果所有优先罪人都没有技能可替换，则点击返回按钮退出该界面
         auto.click_element("mirror/shop/ID_skill_replace_search_return_assets.png")
 
+    @begin_and_finish_time_log(task_name="技能替换")
     def replacement_skill(self):
         """
         技能替换主流程管理方法。
