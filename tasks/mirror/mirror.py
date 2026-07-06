@@ -217,10 +217,12 @@ class Mirror:
 
         main_loop_count = self.LOOP_COUNT
         back_menu_count = 0
+        model_reset_done = False  # P2: 避免每轮重复设置 auto.model
         # 未到达奖励页不会停止
         while True:
-            if main_loop_count >= 50:
+            if main_loop_count >= 50 and not model_reset_done:
                 auto.model = "clam"  # 防止函数内修改后未还原
+                model_reset_done = True
             # 自动截图
             if auto.take_screenshot() is None:
                 continue

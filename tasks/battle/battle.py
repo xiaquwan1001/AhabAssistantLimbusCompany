@@ -207,9 +207,17 @@ class Battle:
                 auto.mouse_click(view_status[0] + 100 * my_scale, view_status[1] - 500 * my_scale)
                 continue
 
-            # 如果正在交战过程
+            # 如果正在交战过程 — 优化：只检测 pause_assets 消失，跳过全量模板匹配
             if auto.find_element("battle/pause_assets.png"):
-                sleep(2 * waiting)  # 战斗播片中增大间隔
+                # 战斗动画中维持低频率轮询，只检测暂停按钮是否消失
+                while self.running:
+                    if auto.take_screenshot() is None:
+                        continue
+                    if auto.get_restore_time() is not None:
+                        start_time = max(start_time, auto.get_restore_time())
+                    if not auto.find_element("battle/pause_assets.png", threshold=0.85):
+                        break
+                    sleep(1.5)  # 战斗动画中每 1.5s 检测一次，只检查一个模板
                 chance = self.INIT_CHANCE
                 first_turn = False
                 continue

@@ -2,12 +2,32 @@ import time
 from time import sleep
 
 import cv2
+import numpy as np
 
 from module.automation import auto
 from module.config import cfg
 from module.logger import log
 from module.my_error.my_error import InputAttributeError
 from tasks.base.retry import retry
+
+# ── P0: ONNX session 全局单例 ──────────────────────────────────────────
+_onnx_session = None
+_ONNX_SESSION_MODEL_PATH = "./assets/model/best.onnx"
+
+def _get_onnx_session():
+    """获取 ONNX InferenceSession 单例（延迟初始化，只创建一次）"""
+    global _onnx_session
+    if _onnx_session is None:
+        import onnxruntime as ort
+        _onnx_session = ort.InferenceSession(_ONNX_SESSION_MODEL_PATH)
+    return _onnx_session
+
+ONNX_CLASSES = [
+    "battle", "boss_battle", "event",
+    "hard_battle", "hard_battle_2",
+    "shop", "small_boss_battle",
+]
+# ────────────────────────────────────────────────────────────────────────
 
 
 class MirrorMap:
@@ -357,23 +377,11 @@ def search_road_from_road_map(hard_mode=False):
 
 def identify_nodes(bus_x):
     import numpy as np
-    import onnxruntime as ort
 
-    # 定义检测目标的类别标签（与模型训练时的类别一致）
-    CLASSES = [
-        "battle",
-        "boss_battle",
-        "event",
-        "hard_battle",
-        "hard_battle_2",
-        "shop",
-        "small_boss_battle",
-    ]
+    # 使用模块级缓存单例，避免每次推理重新创建 InferenceSession
+    session = _get_onnx_session()
 
     no_flag = False  # 标记是否检测到目标（初始为 False，未检测到时设为 True）
-
-    # 加载 ONNX 格式的目标检测模型
-    session = ort.InferenceSession("./assets/model/best.onnx")
 
     # 读取原始图像（BGR 格式，由 OpenCV 读取）
     auto.take_screenshot(gray=False)
@@ -446,7 +454,7 @@ def identify_nodes(bus_x):
             # 构造检测结果字典（包含类别、置信度、边界框等信息）
             detection = {
                 "class_id": class_ids[index],
-                "class_name": CLASSES[class_ids[index]],
+                "class_name": ONNX_CLASSES[class_ids[index]],
                 "confidence": scores[index],
                 "box": box,  # 原始边界框（基于 640x640 输入尺寸）
                 "scale": scale,  # 缩放比例（用于还原到原始图像尺寸）
