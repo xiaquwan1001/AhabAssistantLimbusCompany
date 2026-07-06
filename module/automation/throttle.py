@@ -27,7 +27,7 @@ class ThrottleConfig:
         max_interval_ms: 最大操作间隔（毫秒），高负载时退让至此
         window_size: 滑动窗口大小，用于计算平均耗时
     """
-    enabled: bool = True
+    enabled: bool = False
     min_interval_ms: int = 30
     max_interval_ms: int = 150
     window_size: int = 20

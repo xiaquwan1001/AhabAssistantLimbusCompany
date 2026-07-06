@@ -233,11 +233,12 @@ class Automation(metaclass=SingletonMeta):
         # 自适应节流：取代固定间隔 sleep
         self._click_throttle.wait()
 
-        if self.last_click_time == 0:
-            self.last_click_time = time.time()
-        if time.time() - self.last_click_time < interval:
-            time.sleep(interval)
-            self.last_click_time = time.time()
+        if not cfg.adaptive_throttle:
+            if self.last_click_time == 0:
+                self.last_click_time = time.time()
+            if time.time() - self.last_click_time < interval:
+                time.sleep(interval)
+                self.last_click_time = time.time()
 
         # 计算传入的位置
         x, y = self.calculate_click_position(coordinates, offset)
@@ -281,12 +282,13 @@ class Automation(metaclass=SingletonMeta):
                 # 自适应节流：取代固定间隔 sleep
                 self._screenshot_throttle.wait()
 
-                if time.time() - self.last_screenshot_time < screenshot_interval_time:
-                    wait_time = max(
-                        screenshot_interval_time - (time.time() - self.last_screenshot_time),
-                        0,
-                    )
-                    time.sleep(wait_time)
+                if not cfg.adaptive_throttle:
+                    if time.time() - self.last_screenshot_time < screenshot_interval_time:
+                        wait_time = max(
+                            screenshot_interval_time - (time.time() - self.last_screenshot_time),
+                            0,
+                        )
+                        time.sleep(wait_time)
 
                 result = ScreenShot.take_screenshot(gray)
                 if result:
