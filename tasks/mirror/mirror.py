@@ -25,6 +25,7 @@ from tasks.battle import battle
 from tasks.event import event_handling
 from tasks.mirror.in_shop import Shop
 from tasks.mirror.reward_card import get_reward_card
+from module4_decision_layer.handlers.game import StarlightHandler
 from tasks.mirror.search_road import (
     MirrorMap,
     search_road_default_distance,
@@ -314,7 +315,9 @@ class Mirror:
 
     def _run_team_select(self) -> bool:
         """选择镜牢队伍。"""
-        if not self.auto.find_element("mirror/road_to_mir/select_team_stars_assets.png"):
+        from module4_decision_layer.handlers.game import TeamSelectHandler
+
+        if not TeamSelectHandler()(auto=self.auto):
             return False
         self.select_mirror_team()
         return True
@@ -386,10 +389,10 @@ class Mirror:
 
     def _run_starlight(self) -> bool:
         """镜牢星光选择。"""
-        if not self.auto.find_element("mirror/road_to_mir/dreaming_star/coins_assets.png", threshold=0.9):
-            return False
-        self.enter_mir_with_star()
-        return True
+        if StarlightHandler()(auto=self.auto):
+            self.enter_mir_with_star()
+            return True
+        return False
 
     def _run_ego_gift_acquisition(self, main_loop_count: int) -> bool:
         """选择/拒绝EGO饰品（包含三种判定）。"""
@@ -451,23 +454,21 @@ class Mirror:
 
     def _run_init_ego_gift(self) -> bool:
         """初始饰品选择。"""
-        if not (
-            self.auto.find_element("mirror/road_to_mir/activate_gift_search_on_assets.png")
-            or self.auto.find_element("mirror/road_to_mir/activate_gift_search_off_assets.png")
-        ):
-            return False
-        self.select_init_ego_gift()
-        return True
+        from module4_decision_layer.handlers.game import InitEgoGiftHandler
+
+        if InitEgoGiftHandler()(auto=self.auto):
+            self.select_init_ego_gift()
+            return True
+        return False
 
     def _run_observe_ego_gift(self) -> bool:
         """观测EGO饰品。"""
-        if not (
-            self.auto.find_element("mirror/road_to_mir/observe_ego_gift/observe_bleed_assets.png", model="clam")
-            or self.auto.find_element("mirror/road_to_mir/observe_ego_gift/observe_burn_assets.png", model="clam")
-        ):
-            return False
-        self.select_observe_ego_gift()
-        return True
+        from module4_decision_layer.handlers.game import ObserveEgoGiftHandler
+
+        if ObserveEgoGiftHandler()(auto=self.auto):
+            self.select_observe_ego_gift()
+            return True
+        return False
 
     def _run_close_infinity(self) -> bool:
         """关闭无限镜牢弹窗。"""

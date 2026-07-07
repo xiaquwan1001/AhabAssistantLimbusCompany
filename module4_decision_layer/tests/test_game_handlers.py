@@ -14,8 +14,12 @@ from module4_decision_layer.handlers.game import (
     EnterNodeHandler,
     EventEffectHandler,
     EventHandler,
+    InitEgoGiftHandler,
     NoTeamHandler,
+    ObserveEgoGiftHandler,
     RewardCardHandler,
+    StarlightHandler,
+    TeamSelectHandler,
 )
 
 
@@ -356,3 +360,90 @@ class TestRewardCardHandler:
         result = handler(auto=auto)
         assert result is True
         mock_reward_card_module.get_reward_card.assert_called_once_with(3)
+
+
+class TestObserveEgoGiftHandler:
+    BLEED_ASSET = "mirror/road_to_mir/observe_ego_gift/observe_bleed_assets.png"
+    BURN_ASSET = "mirror/road_to_mir/observe_ego_gift/observe_burn_assets.png"
+
+    def make_handler(self, auto=None):
+        return ObserveEgoGiftHandler(auto=auto)
+
+    def test_found_when_bleed(self):
+        """find bleed returns coords, burn returns None → True"""
+        auto = MagicMock()
+        auto.find_element.side_effect = lambda target, **kw: (
+            [100, 100, 200, 200] if target == self.BLEED_ASSET else None
+        )
+        handler = self.make_handler(auto)
+        result = handler()
+        assert result is True
+
+    def test_found_when_burn(self):
+        """find bleed returns None, burn returns coords → True"""
+        auto = MagicMock()
+        auto.find_element.side_effect = lambda target, **kw: (
+            [100, 100, 200, 200] if target == self.BURN_ASSET else None
+        )
+        handler = self.make_handler(auto)
+        result = handler()
+        assert result is True
+
+    def test_missing_when_neither(self):
+        """both None → False"""
+        auto = MagicMock()
+        auto.find_element.return_value = None
+        handler = self.make_handler(auto)
+        result = handler()
+        assert result is False
+
+    def test_raises_without_auto(self):
+        handler = self.make_handler(auto=None)
+        with pytest.raises(ValueError, match="requires 'auto'"):
+            handler()
+
+    def test_call_time_auto(self):
+        auto = MagicMock()
+        auto.find_element.return_value = [100, 100, 200, 200]
+        handler = self.make_handler(auto=None)
+        result = handler(auto=auto)
+        assert result is True
+        auto.find_element.assert_any_call(self.BLEED_ASSET, model="clam")
+
+
+class TestTeamSelectHandler:
+    ASSET = "mirror/road_to_mir/select_team_stars_assets.png"
+
+    def make_handler(self, auto=None):
+        return TeamSelectHandler(auto=auto)
+
+    def test_select_found(self):
+        """find returns coords → True"""
+        auto = MagicMock()
+        auto.find_element.return_value = [100, 100, 200, 200]
+        handler = self.make_handler(auto)
+        result = handler()
+        assert result is True
+        auto.find_element.assert_called_once_with(self.ASSET)
+
+    def test_select_missing(self):
+        """find returns None → False"""
+        auto = MagicMock()
+        auto.find_element.return_value = None
+        handler = self.make_handler(auto)
+        result = handler()
+        assert result is False
+        auto.find_element.assert_called_once_with(self.ASSET)
+
+    def test_raises_without_auto(self):
+        handler = self.make_handler(auto=None)
+        with pytest.raises(ValueError, match="requires 'auto'"):
+            handler()
+
+    def test_call_time_auto(self):
+        auto = MagicMock()
+        auto.find_element.return_value = [100, 100, 200, 200]
+        handler = self.make_handler(auto=None)
+        result = handler(auto=auto)
+        assert result is True
+        auto.find_element.assert_called_once_with(self.ASSET)

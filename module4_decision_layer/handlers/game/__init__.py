@@ -145,6 +145,23 @@ class NoTeamHandler:
         return True
 
 
+class TeamSelectHandler:
+    """选择镜牢队伍前的星星检测。
+
+    对应旧 Mirror._run_team_select() 前半部分。
+    仅检测星星元素是否存在 — 若存在返回 True，Mirror 再调用 select_mirror_team()。
+    """
+
+    def __init__(self, auto: Optional[AutomationPort] = None):
+        self.auto = auto
+
+    def __call__(self, auto: Optional[AutomationPort] = None) -> bool:
+        a = auto or self.auto
+        if a is None:
+            raise ValueError("TeamSelectHandler requires 'auto' (AutomationPort)")
+        return bool(a.find_element("mirror/road_to_mir/select_team_stars_assets.png"))
+
+
 class RewardCardHandler:
     """选择奖励卡牌。
 
@@ -172,3 +189,68 @@ class RewardCardHandler:
         else:
             get_reward_card()
         return True
+
+
+class InitEgoGiftHandler:
+    """寻找初始EGO饰品。
+
+    对应旧 Mirror._run_init_ego_gift()
+    """
+
+    ON_ASSET = "mirror/road_to_mir/activate_gift_search_on_assets.png"
+    OFF_ASSET = "mirror/road_to_mir/activate_gift_search_off_assets.png"
+
+    def __init__(self, auto: Optional[AutomationPort] = None):
+        self.auto = auto
+
+    def __call__(self, auto: Optional[AutomationPort] = None) -> bool:
+        a = auto or self.auto
+        if a is None:
+            raise ValueError("InitEgoGiftHandler requires 'auto' (AutomationPort)")
+        if a.find_element(self.ON_ASSET):
+            return True
+        if a.find_element(self.OFF_ASSET):
+            return True
+        return False
+
+
+class StarlightHandler:
+    """检测开局星光。
+
+    对应旧 Mirror._run_starlight()
+    """
+
+    ASSET = "mirror/road_to_mir/dreaming_star/coins_assets.png"
+
+    def __init__(self, auto: Optional[AutomationPort] = None):
+        self.auto = auto
+
+    def __call__(self, auto: Optional[AutomationPort] = None) -> bool:
+        a = auto or self.auto
+        if a is None:
+            raise ValueError("StarlightHandler requires 'auto' (AutomationPort)")
+        return bool(a.find_element(self.ASSET, threshold=0.9))
+
+
+class ObserveEgoGiftHandler:
+    """观测EGO饰品。
+
+    对应旧 Mirror._run_observe_ego_gift()
+    """
+
+    def __init__(self, auto: Optional[AutomationPort] = None):
+        self.auto = auto
+
+    def __call__(self, auto: Optional[AutomationPort] = None) -> bool:
+        a = auto or self.auto
+        if a is None:
+            raise ValueError("ObserveEgoGiftHandler requires 'auto' (AutomationPort)")
+        if a.find_element(
+            "mirror/road_to_mir/observe_ego_gift/observe_bleed_assets.png", model="clam"
+        ):
+            return True
+        if a.find_element(
+            "mirror/road_to_mir/observe_ego_gift/observe_burn_assets.png", model="clam"
+        ):
+            return True
+        return False
