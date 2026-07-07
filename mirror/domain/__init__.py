@@ -4,7 +4,7 @@ Strangled — source of truth moved to module4_decision_layer/core/.
 """
 
 # Strangled — source of truth moved to module4_decision_layer
-from module4_decision_layer.core.ports import AutomationPort, ConfigPort, RunConfig
+from module4_decision_layer.core.ports import AutomationPort, ConfigPort, RunConfig, ComposedAutomation
 from module4_decision_layer.core.state import MirrorPhase, MirrorStateMachine
 from module4_decision_layer.core.constants import (
     MIRROR_MAIN_LOOP,
@@ -24,6 +24,7 @@ __all__ = [
     "RunConfig",
     "MirrorPhase",
     "MirrorStateMachine",
+    "ComposedAutomation",
     "MIRROR_MAIN_LOOP",
     "DEFAULT_LOOP",
     "SHORT_LOOP",
