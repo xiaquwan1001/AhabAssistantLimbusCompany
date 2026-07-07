@@ -14,7 +14,6 @@ import time
 from ctypes import c_void_p, windll
 from pathlib import Path
 
-
 # =============================================================================
 # 初始化区域：DPI、项目路径、依赖导入、参数、Steam 游戏窗口、截图
 # =============================================================================
@@ -130,4 +129,6 @@ for score, model, relative_path, center, bbox in results:
 
 best = results[0]
 print()
-print(f"最高匹配: image={best[2]}, model={best[1]}, score={best[0]:.6f}, center={best[3]}, matched={best[0] >= threshold}")
+print(
+    f"最高匹配: image={best[2]}, model={best[1]}, score={best[0]:.6f}, center={best[3]}, matched={best[0] >= threshold}"
+)

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import hashlib
 import json
-from pathlib import Path
 import sys
+from datetime import datetime, timezone
+from pathlib import Path
 
 # 兼容直接执行 python scripts/xxx.py 的场景，主动补上项目根目录导入路径。
 if __package__ in {None, ""}:
@@ -287,7 +287,6 @@ def main() -> int:
         output_package_path=args.output_package_path,
         generated_at=args.generated_at,
     )
-
 
     return 0
 
