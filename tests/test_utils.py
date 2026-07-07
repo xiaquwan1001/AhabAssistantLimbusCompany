@@ -164,7 +164,9 @@ class TestCheckHardMirrorTime:
             def now(cls, tz=None):
                 return now_dt
 
-        with patch.object(uu, "cfg") as mock_cfg:
+        with patch.object(uu, "_get_cfg") as mock_get_cfg:
+            mock_cfg = MagicMock()
+            mock_get_cfg.return_value = mock_cfg
             mock_cfg.last_auto_change = last_change_dt.timestamp()
             with patch.object(uu, "datetime", MockDateTime):
                 return check_hard_mirror_time()

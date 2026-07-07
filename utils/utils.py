@@ -12,8 +12,17 @@ import cv2
 import numpy as np
 import win32crypt
 
-from module.config import cfg
-from module.logger import log
+
+def _get_cfg():
+    """惰性获取全局 cfg，仅在需要时导入（打破循环依赖）。"""
+    from module.config import cfg
+    return cfg
+
+
+def _get_log():
+    """惰性获取全局 logger，仅在需要时导入（打破循环依赖）。"""
+    from module.logger import log
+    return log
 
 
 def get_day_of_week() -> int:
@@ -34,7 +43,7 @@ def get_day_of_week() -> int:
 
 def check_hard_mirror_time() -> bool:
     seoul_tz = ZoneInfo("Asia/Seoul")
-    last_time = datetime.fromtimestamp(cfg.last_auto_change, seoul_tz)
+    last_time = datetime.fromtimestamp(_get_cfg().last_auto_change, seoul_tz)
     now_time = datetime.now(seoul_tz)
 
     if last_time >= now_time:
@@ -182,8 +191,8 @@ def decrypt_string(encrypted_b64: str, entropy: bytes = b"AALC") -> str:
 
 def check_game_running() -> bool:
     """检查游戏是否正在运行"""
-    if cfg.simulator:
-        if cfg.simulator_type == 0:
+    if _get_cfg().simulator:
+        if _get_cfg().simulator_type == 0:
             from module.automation.input_handlers.simulator.mumu_control import (
                 MumuControl,
             )
@@ -209,7 +218,7 @@ def check_game_running() -> bool:
                 # 获取进程的可执行文件名（如 "notepad.exe"）
                 proc_name = proc.info["name"]
                 # 精确匹配进程名（区分大小写，取决于系统）
-                if cfg.game_process_name in proc_name:
+                if _get_cfg().game_process_name in proc_name:
                     return True
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 # 忽略已终止、无权限或僵尸进程
@@ -231,16 +240,16 @@ def run_as_user(command: list[str], timeout: int = 30):
         try:
             res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
             if res.returncode != 0 and not ignore_error:
-                log.debug(f"命令执行失败: {cmd}\n错误: {res.stderr.strip()}")
+                _get_log().debug(f"命令执行失败: {cmd}\n错误: {res.stderr.strip()}")
             return res
         except subprocess.TimeoutExpired:
-            log.debug(f"命令执行超时: {cmd}")
+            _get_log().debug(f"命令执行超时: {cmd}")
             return None
 
     def _fallback_launch():
-        log.warning(f"schtasks 方式启动失败，改用 subprocess.Popen 直接启动: {command}")
+        _get_log().warning(f"schtasks 方式启动失败，改用 subprocess.Popen 直接启动: {command}")
         proc = subprocess.Popen(command, creationflags=no_window_flag)
-        log.debug(f"Popen 已发起, pid={proc.pid}")
+        _get_log().debug(f"Popen 已发起, pid={proc.pid}")
 
     try:
         # 1. 预清理：强制删除旧任务 (/f)
@@ -262,7 +271,7 @@ def run_as_user(command: list[str], timeout: int = 30):
             return
 
         # 4. 立即执行任务
-        log.debug(f"启动任务: {command}")
+        _get_log().debug(f"启动任务: {command}")
         run_result = run_cmd(f'schtasks /run /tn "{task_name}"')
         if run_result is None or run_result.returncode != 0:
             _fallback_launch()
@@ -272,12 +281,12 @@ def run_as_user(command: list[str], timeout: int = 30):
         sleep(2)
 
     except Exception as e:
-        log.warning(f"run_as_user schtasks 路径异常 ({type(e).__name__}: {e}), 尝试 Popen 降级")
+        _get_log().warning(f"run_as_user schtasks 路径异常 ({type(e).__name__}: {e}), 尝试 Popen 降级")
         try:
             proc = subprocess.Popen(command, creationflags=no_window_flag)
-            log.debug(f"run_as_user Popen 降级成功, pid={proc.pid}")
+            _get_log().debug(f"run_as_user Popen 降级成功, pid={proc.pid}")
         except Exception as e2:
-            log.error(f"run_as_user Popen 降级也失败了: {e2}")
+            _get_log().error(f"run_as_user Popen 降级也失败了: {e2}")
     finally:
         # 6. 最终清理
         run_cmd(f'schtasks /delete /tn "{task_name}" /f', ignore_error=True)
@@ -285,6 +294,6 @@ def run_as_user(command: list[str], timeout: int = 30):
             try:
                 os.unlink(bat_path)
             except OSError as e:
-                log.debug(f"任务: {command} 尝试删除临时脚本失败: {e}")
+                _get_log().debug(f"任务: {command} 尝试删除临时脚本失败: {e}")
 
     return True
