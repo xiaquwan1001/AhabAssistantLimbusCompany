@@ -1,29 +1,29 @@
-"""
-AALC 常量定义
+"""镜牢領域层 常量定义
 
-集中管理魔法数字和字符串，提高可读性与可维护性。
-所有涉及缩放的计算放一个地方，避免散布在代码各处。
+集中管理魔法数字和缩放计算。
+领域纯函数：不依赖 module.config.cfg，缩放因子由调用方注入。
 """
 
-from module.config import cfg
+from __future__ import annotations
+
 
 # ── 缩放相关 ──
 
 # 基准分辨率宽度（参考设计值）
 BASE_RESOLUTION_WIDTH = 1440
 
-# 有些模块（如 select_theme_pack, search_road）使用 1080 基准
+# 有些模块（如 select_theme_pack, search_road）使用 1080 基準
 BASE_RESOLUTION_WIDTH_ALT = 1080
 
 
-def get_scale(base: int = BASE_RESOLUTION_WIDTH) -> float:
+def get_scale(win_size: int, base: int = BASE_RESOLUTION_WIDTH) -> float:
     """返回当前窗口缩放比例因子（相对于基准分辨率）。
 
     调用示例:
-        scale = get_scale()           # cfg.set_win_size / 1440
-        scale = get_scale(1080)        # cfg.set_win_size / 1080
+        scale = get_scale(cfg.set_win_size)       # cfg.set_win_size / 1440
+        scale = get_scale(cfg.set_win_size, 1080)  # cfg.set_win_size / 1080
     """
-    return cfg.set_win_size / base
+    return win_size / base
 
 
 # ── 各模块通用坐标偏移（scale 相关，供替换 190 * scale 等） ──
