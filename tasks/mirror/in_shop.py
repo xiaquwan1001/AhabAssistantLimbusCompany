@@ -12,6 +12,29 @@ from tasks.base.retry import retry
 from tasks.mirror import fusion_result, must_be_abandoned, must_purchase
 from utils.image_utils import ImageUtils
 
+# ── 项目常量 ──
+from tasks.mirror.constants import (
+    get_scale,
+    WAIT,
+    DEFAULT_LOOP,
+    SHORT_LOOP,
+    MIN_LOOP,
+    SHOP_GIFT_COLUMN_STEP,
+    SHOP_GIFT_ROW_STEP,
+    SHOP_GIFT_COLUMNS,
+    SHOP_FIRST_GRID_OFFSET_X,
+    SHOP_REFRESH_STEP,
+    SHOP_COMMODITY_PER_LINE,
+    COORDINATE_GROUP_THRESHOLD,
+    COORDINATE_PROTECT_THRESHOLD,
+    BUY_RETRY_CHANCES,
+    BLANK_CLICK_TIMES,
+    FUSE_LOOP_TIMES,
+    FUSE_STARLIGHT_CHANCES,
+    KEYWORD_CONFIRM_RETRIES,
+    SKILL_REPLACEMENT_MAX,
+)
+
 
 class Shop:
     def __init__(self, team_setting: TeamSetting):

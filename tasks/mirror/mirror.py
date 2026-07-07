@@ -34,6 +34,17 @@ from tasks.teams.team_formation import check_team, load_team_code_in_game, selec
 from utils.image_utils import ImageUtils
 from utils.path_manager import path_manager
 
+# ── 项目常量 ──
+from tasks.mirror.constants import (
+    MIRROR_MAIN_LOOP,
+    DEFAULT_LOOP,
+    SHORT_LOOP,
+    MIN_LOOP,
+    SINNER_LIVE_THRESHOLD,
+    BATTLE_FAIL_RETRY_THRESHOLD,
+    get_scale,
+)
+
 
 # 输出时间统计
 def to_log_with_time(msg, elapsed_time):
@@ -115,7 +126,7 @@ class Mirror:
         self.floor = 0
         self.get_floor_num = True
         self.floor_times = [-9999.0 for i in range(5)]  # 负值代表缺失值
-        self.LOOP_COUNT = 250
+        self.LOOP_COUNT = MIRROR_MAIN_LOOP
 
         self.mirror_map = MirrorMap(hard_mode=self.hard_switch)
 
@@ -124,7 +135,7 @@ class Mirror:
         self.bequest_from_the_previous_game = False
 
     def road_to_mir(self):
-        loop_count = 30
+        loop_count = DEFAULT_LOOP
         auto.model = "clam"
         self.first_battle = True
         while True:
@@ -587,7 +598,7 @@ class Mirror:
                     if self.pass_coins is None:
                         for _ in range(5):
                             try:
-                                scale = cfg.set_win_size / 1440
+                                scale = get_scale()
                                 if coins_pos := auto.find_element("mirror/claim_reward/coins.png"):
                                     coins_bbox = [
                                         coins_pos[0],
