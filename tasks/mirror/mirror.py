@@ -47,7 +47,7 @@ from tasks.mirror.constants import (
     EVENT_CLICK_TIMES,
     get_scale,
 )
-from tasks.mirror.state_machine import MirrorAction, MirrorStateMachine
+from tasks.mirror.state_machine import MirrorStateMachine
 
 
 # 输出时间统计
