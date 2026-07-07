@@ -305,6 +305,58 @@ class TestNoTeamHandler:
         auto.mouse_click_blank.assert_called_once_with()
 
 
+class TestInitEgoGiftHandler:
+    ON_ASSET = "mirror/road_to_mir/activate_gift_search_on_assets.png"
+    OFF_ASSET = "mirror/road_to_mir/activate_gift_search_off_assets.png"
+
+    def make_handler(self, auto=None):
+        from module4_decision_layer.handlers.game import InitEgoGiftHandler
+        return InitEgoGiftHandler(auto=auto)
+
+    def test_found_when_on_asset(self):
+        """on_asset 找到 → True"""
+        auto = MagicMock()
+        auto.find_element.side_effect = lambda target, **kw: (
+            [100, 100, 200, 200] if target == self.ON_ASSET else None
+        )
+        handler = self.make_handler(auto)
+        result = handler()
+        assert result is True
+        auto.find_element.assert_any_call(self.ON_ASSET)
+
+    def test_found_when_off_asset(self):
+        """on_asset 找不到, off_asset 找到 → True"""
+        auto = MagicMock()
+        auto.find_element.side_effect = lambda target, **kw: (
+            [100, 100, 200, 200] if target == self.OFF_ASSET else None
+        )
+        handler = self.make_handler(auto)
+        result = handler()
+        assert result is True
+        auto.find_element.assert_any_call(self.OFF_ASSET)
+
+    def test_missing_when_neither(self):
+        """都找不到 → False"""
+        auto = MagicMock()
+        auto.find_element.return_value = None
+        handler = self.make_handler(auto)
+        result = handler()
+        assert result is False
+
+    def test_raises_without_auto(self):
+        handler = self.make_handler(auto=None)
+        with pytest.raises(ValueError, match="requires 'auto'"):
+            handler()
+
+    def test_call_time_auto(self):
+        auto = MagicMock()
+        auto.find_element.return_value = [100, 100, 200, 200]
+        handler = self.make_handler(auto=None)
+        result = handler(auto=auto)
+        assert result is True
+        auto.find_element.assert_any_call(self.ON_ASSET)
+
+
 class TestRewardCardHandler:
     """Handler for Mirror._run_reward_card migration."""
 
