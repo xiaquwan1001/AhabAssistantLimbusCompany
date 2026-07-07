@@ -355,11 +355,12 @@ class Mirror:
 
     def _run_no_team(self) -> bool:
         """没有配队时重置。"""
-        if not self.auto.find_element("battle/select_none_assets.png"):
-            return False
-        self.auto.mouse_click_blank()
-        self.first_battle = True
-        return True
+        from module4_decision_layer.handlers.game import NoTeamHandler
+
+        if NoTeamHandler()(auto=self.auto):
+            self.first_battle = True
+            return True
+        return False
 
     def _run_battle(self, main_loop_count: int) -> bool:
         """战斗识别与执行（主战斗 + keyword/OCR fallback + win_rate）。"""
@@ -415,10 +416,12 @@ class Mirror:
 
     def _run_event(self) -> bool:
         """事件处理。"""
-        if not self.auto.click_element("event/skip_assets.png", times=EVENT_CLICK_TIMES):
-            return False
-        self.event_handling()
-        return True
+        from module4_decision_layer.handlers.game import EventHandler
+
+        if EventHandler()(auto=self.auto):
+            self.event_handling()
+            return True
+        return False
 
     def _run_shop(self) -> bool:
         """商店操作。"""
@@ -429,13 +432,9 @@ class Mirror:
 
     def _run_reward_card(self) -> bool:
         """选择奖励卡。"""
-        if not self.auto.find_element("mirror/road_in_mir/select_encounter_reward_card_assets.png"):
-            return False
-        if self.reward_cards:
-            get_reward_card(self.reward_cards_select)
-        else:
-            get_reward_card()
-        return True
+        from module4_decision_layer.handlers.game import RewardCardHandler
+
+        return RewardCardHandler(reward_cards_select=self.reward_cards)(auto=self.auto)
 
     def _run_enter_mirror(self) -> bool:
         """从主界面/镜牢界面进入镜牢。返回 True 时调用者需检查 bequest。"""

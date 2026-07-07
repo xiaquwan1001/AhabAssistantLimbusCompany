@@ -85,6 +85,26 @@ class EnterNodeHandler:
         return bool(a.click_element("mirror/road_in_mir/enter_assets.png"))
 
 
+class EventHandler:
+    """处理事件跳过。
+
+    对应旧 Mirror._run_event()
+    """
+
+    def __init__(self, auto: Optional[AutomationPort] = None):
+        self.auto = auto
+
+    def __call__(self, auto: Optional[AutomationPort] = None) -> bool:
+        a = auto or self.auto
+        if a is None:
+            raise ValueError("EventHandler requires 'auto' (AutomationPort)")
+        from module4_decision_layer.core.constants import EVENT_CLICK_TIMES
+
+        if not a.click_element("event/skip_assets.png", times=EVENT_CLICK_TIMES):
+            return False
+        return True
+
+
 class EventEffectHandler:
     """处理选择增益事件（少见）。
 
@@ -103,4 +123,52 @@ class EventEffectHandler:
         ):
             return False
         a.click_element("mirror/road_in_mir/select_event_effect_confirm.png")
+        return True
+
+
+class NoTeamHandler:
+    """没有配队时重置。
+
+    对应旧 Mirror._run_no_team()
+    """
+
+    def __init__(self, auto: Optional[AutomationPort] = None):
+        self.auto = auto
+
+    def __call__(self, auto: Optional[AutomationPort] = None) -> bool:
+        a = auto or self.auto
+        if a is None:
+            raise ValueError("NoTeamHandler requires 'auto' (AutomationPort)")
+        if not a.find_element("battle/select_none_assets.png"):
+            return False
+        a.mouse_click_blank()
+        return True
+
+
+class RewardCardHandler:
+    """选择奖励卡牌。
+
+    对应旧 Mirror._run_reward_card()
+    """
+
+    def __init__(
+        self,
+        auto: Optional[AutomationPort] = None,
+        reward_cards_select: Optional[int] = None,
+    ):
+        self.auto = auto
+        self.reward_cards_select = reward_cards_select
+
+    def __call__(self, auto: Optional[AutomationPort] = None) -> bool:
+        a = auto or self.auto
+        if a is None:
+            raise ValueError("RewardCardHandler requires 'auto' (AutomationPort)")
+        if not a.find_element("mirror/road_in_mir/select_encounter_reward_card_assets.png"):
+            return False
+        from tasks.mirror.reward_card import get_reward_card
+
+        if self.reward_cards_select:
+            get_reward_card(self.reward_cards_select)
+        else:
+            get_reward_card()
         return True

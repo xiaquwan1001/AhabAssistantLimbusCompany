@@ -3,7 +3,7 @@ Test new-style game handlers: DismissPromptHandler, CloseInfinityHandler.
 Pure unit tests — mock AutomationPort, no Win32 deps.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -13,6 +13,9 @@ from module4_decision_layer.handlers.game import (
     EgoGiftConfirmHandler,
     EnterNodeHandler,
     EventEffectHandler,
+    EventHandler,
+    NoTeamHandler,
+    RewardCardHandler,
 )
 
 
@@ -225,3 +228,131 @@ class TestEventEffectHandler:
         result = handler(auto=auto)
         assert result is True
         assert auto.click_element.call_count == 2
+
+
+class TestEventHandler:
+    def make_handler(self, auto=None):
+        return EventHandler(auto=auto)
+
+    def test_skips_when_skip_found(self):
+        auto = MagicMock()
+        auto.click_element.return_value = True
+        handler = self.make_handler(auto)
+        result = handler()
+        assert result is True
+        auto.click_element.assert_called_once_with("event/skip_assets.png", times=6)
+
+    def test_does_nothing_when_no_skip(self):
+        auto = MagicMock()
+        auto.click_element.return_value = False
+        handler = self.make_handler(auto)
+        result = handler()
+        assert result is False
+        auto.click_element.assert_called_once_with("event/skip_assets.png", times=6)
+
+    def test_raises_without_auto(self):
+        handler = self.make_handler(auto=None)
+        with pytest.raises(ValueError, match="requires 'auto'"):
+            handler()
+
+    def test_accepts_auto_at_call_time(self):
+        auto = MagicMock()
+        auto.click_element.return_value = True
+        handler = self.make_handler(auto=None)  # no constructor auto
+        result = handler(auto=auto)
+        assert result is True
+        auto.click_element.assert_called_once_with("event/skip_assets.png", times=6)
+
+
+class TestNoTeamHandler:
+    def make_handler(self, auto=None):
+        return NoTeamHandler(auto=auto)
+
+    def test_resets_when_no_team(self):
+        auto = MagicMock()
+        auto.find_element.return_value = [100, 100, 200, 200]
+        handler = self.make_handler(auto)
+        result = handler()
+        assert result is True
+        auto.find_element.assert_called_once_with("battle/select_none_assets.png")
+        auto.mouse_click_blank.assert_called_once_with()
+
+    def test_does_nothing_when_team_ok(self):
+        auto = MagicMock()
+        auto.find_element.return_value = None
+        handler = self.make_handler(auto)
+        result = handler()
+        assert result is False
+        auto.find_element.assert_called_once_with("battle/select_none_assets.png")
+        auto.mouse_click_blank.assert_not_called()
+
+    def test_raises_without_auto(self):
+        handler = self.make_handler(auto=None)
+        with pytest.raises(ValueError, match="requires 'auto'"):
+            handler()
+
+    def test_accepts_auto_at_call_time(self):
+        auto = MagicMock()
+        auto.find_element.return_value = [100, 100, 200, 200]
+        handler = self.make_handler(auto=None)  # no constructor auto
+        result = handler(auto=auto)
+        assert result is True
+        auto.find_element.assert_called_once_with("battle/select_none_assets.png")
+        auto.mouse_click_blank.assert_called_once_with()
+
+
+class TestRewardCardHandler:
+    """Handler for Mirror._run_reward_card migration."""
+
+    ASSET = "mirror/road_in_mir/select_encounter_reward_card_assets.png"
+
+    def make_handler(self, auto=None, reward_cards_select=None):
+        return RewardCardHandler(auto=auto, reward_cards_select=reward_cards_select)
+
+    @pytest.fixture
+    def mock_reward_card_module(self):
+        """Mock tasks.mirror.reward_card so the lazy import succeeds."""
+        import sys
+        mock_module = MagicMock()
+        mock_module.get_reward_card = MagicMock()
+        with patch.dict(sys.modules, {"tasks.mirror.reward_card": mock_module}):
+            yield mock_module
+
+    def test_selects_card_with_custom_select(self, mock_reward_card_module):
+        """find returns coords, handler gets reward_cards_select param → calls get_reward_card(select)."""
+        auto = MagicMock()
+        auto.find_element.return_value = [100, 100, 200, 200]
+        handler = self.make_handler(auto=None, reward_cards_select=2)
+        result = handler(auto=auto)
+        assert result is True
+        mock_reward_card_module.get_reward_card.assert_called_once_with(2)
+
+    def test_selects_card_without_custom(self, mock_reward_card_module):
+        """find returns coords, handler omits reward_cards_select → calls get_reward_card()."""
+        auto = MagicMock()
+        auto.find_element.return_value = [100, 100, 200, 200]
+        handler = self.make_handler(auto=None)  # no reward_cards_select
+        result = handler(auto=auto)
+        assert result is True
+        mock_reward_card_module.get_reward_card.assert_called_once_with()
+
+    def test_does_nothing_when_no_card(self):
+        """find returns None → handler returns False."""
+        auto = MagicMock()
+        auto.find_element.return_value = None
+        handler = self.make_handler(auto=auto)
+        result = handler()
+        assert result is False
+
+    def test_raises_without_auto(self):
+        handler = self.make_handler(auto=None)
+        with pytest.raises(ValueError, match="requires 'auto'"):
+            handler()
+
+    def test_accepts_auto_at_call_time(self, mock_reward_card_module):
+        auto = MagicMock()
+        auto.find_element.return_value = [100, 100, 200, 200]
+        handler = self.make_handler(auto=None, reward_cards_select=3)
+        result = handler(auto=auto)
+        assert result is True
+        mock_reward_card_module.get_reward_card.assert_called_once_with(3)
