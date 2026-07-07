@@ -6,6 +6,8 @@ from datetime import datetime, time, timedelta
 from time import sleep
 from zoneinfo import ZoneInfo  # Python 3.9+ 内置模块
 
+from typing import List, Optional, Tuple
+
 import cv2
 import numpy as np
 import win32crypt
@@ -14,7 +16,7 @@ from module.config import cfg
 from module.logger import log
 
 
-def get_day_of_week():
+def get_day_of_week() -> int:
     # 直接获取当前东九区时间（Asia/Seoul）
     now_time = datetime.now(ZoneInfo("Asia/Seoul"))
 
@@ -30,7 +32,7 @@ def get_day_of_week():
     return day
 
 
-def check_hard_mirror_time():
+def check_hard_mirror_time() -> bool:
     seoul_tz = ZoneInfo("Asia/Seoul")
     last_time = datetime.fromtimestamp(cfg.last_auto_change, seoul_tz)
     now_time = datetime.now(seoul_tz)
@@ -50,7 +52,7 @@ def check_hard_mirror_time():
     return last_time < candidate <= now_time
 
 
-def calculate_the_teams():
+def calculate_the_teams() -> str:
     day = get_day_of_week()
     if day == 1 or day == 2:
         return "1_2"
@@ -62,7 +64,9 @@ def calculate_the_teams():
         return "7"
 
 
-def find_skill3(background, known_rgb, threshold=40, min_pixels=10):
+def find_skill3(
+    background: np.ndarray, known_rgb: Tuple[int, int, int], threshold: int = 40, min_pixels: int = 10
+) -> List[np.ndarray]:
     median_rgb = np.median(background, axis=(0, 1)).astype(int)
     blended_rgb = (median_rgb * 0.45 + np.array(known_rgb) * 0.55).astype(int)
 
@@ -112,7 +116,7 @@ def find_skill3(background, known_rgb, threshold=40, min_pixels=10):
     return merged
 
 
-def check_teams_order(lst):
+def check_teams_order(lst: List[int]) -> List[int]:
     # 收集所有非零元素的（值，原始索引）对
     non_zero = [(val, idx) for idx, val in enumerate(lst) if val > 0]
     # 按值降序排序，值相同时按原始索引升序排序

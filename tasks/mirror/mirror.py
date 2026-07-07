@@ -2,6 +2,8 @@ import re
 import time
 from time import sleep
 
+from typing import List, Optional
+
 import cv2
 import numpy as np
 
@@ -48,7 +50,7 @@ from tasks.mirror.constants import (
 
 
 # 输出时间统计
-def to_log_with_time(msg, elapsed_time):
+def to_log_with_time(msg: str, elapsed_time: float) -> None:
     # 将总秒数转换为小时、分钟和秒
     hours, remainder = divmod(elapsed_time, 3600)
     minutes, seconds = divmod(remainder, 60)
@@ -56,7 +58,7 @@ def to_log_with_time(msg, elapsed_time):
     log.info(f"{msg} 总耗时:{time_string}")
 
 
-def extract_zh_floor(normalized_text):
+def extract_zh_floor(normalized_text: str) -> Optional[int]:
     for pattern in (r"第([1-5])层", r"第([1-5])层?", r"([1-5])层"):
         match = re.search(pattern, normalized_text)
         if match:
@@ -68,7 +70,7 @@ def extract_zh_floor(normalized_text):
     return None
 
 
-def extract_en_floor(normalized_text):
+def extract_en_floor(normalized_text: str) -> Optional[int]:
     for pattern in (r"floor([1-5])", r"oor([1-5])", r"([1-5])f"):
         match = re.search(pattern, normalized_text)
         if match:
