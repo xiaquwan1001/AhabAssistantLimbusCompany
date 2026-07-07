@@ -71,7 +71,7 @@ class MirrorMap:
         return False
 
     def _get_next_position(self, direction):
-        scale = cfg.set_win_size / 1440
+        scale = get_scale()
         three_roads = [
             [500 * scale, 50 * scale],
             [500 * scale, 450 * scale],
@@ -101,7 +101,7 @@ class MirrorMap:
 
 
 def get_node_weight(x, y):
-    scale = cfg.set_win_size / 1440
+    scale = get_scale()
     road_node_bbox = (
         x - 125 * scale,
         y - 125 * scale,
@@ -234,7 +234,7 @@ def _compute_node_weights(bus_position, three_roads: list, node_list: list) -> d
 
 # 如果默认缩放无法镜牢寻路，进行滚轮缩放后继续寻路
 def search_road_farthest_distance():
-    scale = cfg.set_win_size / 1440
+    scale = get_scale()
     auto.mouse_click_blank()
     if not auto.mouse_scroll():
         raise InputAttributeError("后台输入不支持滚轮操作!")
@@ -265,7 +265,7 @@ def search_road_farthest_distance():
 def search_road_from_road_map(hard_mode=False):
     """使用路网地图进行寻路。返回 (directions, road_class_list) 或 (False, [])。"""
     start_time = time.time()
-    scale = cfg.set_win_size / 1440
+    scale = get_scale()
     road = []
     bus = None
 
@@ -508,7 +508,7 @@ def identify_road(bus_x, min_length=160, merge_distance=230):
 
     import numpy as np
 
-    min_length = min_length * (cfg.set_win_size / 1440)
+    min_length = min_length * get_scale()
 
     auto.take_screenshot()
     screenshot = np.array(auto.screenshot)
@@ -644,7 +644,7 @@ def _build_segment_list(merged_records: list, bus_x: float) -> list:
     for segment in merged_records:
         class_name = "DOWN" if segment["direction"] == "45°" else "UP"
         center = segment["center"]
-        if center[0] < bus_x + 50 * (cfg.set_win_size / 1440):
+        if center[0] < bus_x + 50 * get_scale():
             continue
         segment_list.append([class_name, center])
 
@@ -761,7 +761,7 @@ class RouteGraph:
         self.layers = {}  # 存储各层节点
         self._add_new_layer()
         self._set_node(1, initial_bus_pos, "bus", 1)
-        self.mid_line = mid_line * cfg.set_win_size / 1080
+        self.mid_line = mid_line * get_scale(1080)
         self.hard_mode = hard_mode
 
         self._init_node(all_nodes, self.mid_line)
@@ -784,9 +784,9 @@ class RouteGraph:
             self._add_new_layer()
             for node_entry in layer_data:
                 vertical_pos = Position.MID
-                if node_entry[1][1] < mid_line - MID_LINE_THRESHOLD * cfg.set_win_size / 1440:
+                if node_entry[1][1] < mid_line - MID_LINE_THRESHOLD * get_scale():
                     vertical_pos = Position.TOP
-                elif node_entry[1][1] > mid_line + MID_LINE_THRESHOLD * cfg.set_win_size / 1440:
+                elif node_entry[1][1] > mid_line + MID_LINE_THRESHOLD * get_scale():
                     vertical_pos = Position.BOTTOM
                 self._set_node(
                     self.layer_nums,
