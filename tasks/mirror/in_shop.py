@@ -12,6 +12,63 @@ from tasks.base.retry import retry
 from tasks.mirror import fusion_result, must_be_abandoned, must_purchase
 from utils.image_utils import ImageUtils
 
+# ── 项目常量 ──
+from tasks.mirror.constants import (
+    get_scale,
+    WAIT,
+    DEFAULT_LOOP,
+    SHORT_LOOP,
+    MIN_LOOP,
+    SHOP_GIFT_COLUMN_STEP,
+    SHOP_GIFT_ROW_STEP,
+    SHOP_GIFT_COLUMNS,
+    SHOP_FIRST_GRID_OFFSET_X,
+    SHOP_REFRESH_STEP,
+    SHOP_COMMODITY_PER_LINE,
+    COORDINATE_GROUP_THRESHOLD,
+    COORDINATE_PROTECT_THRESHOLD,
+    BUY_RETRY_CHANCES,
+    BLANK_CLICK_TIMES,
+    FUSE_LOOP_TIMES,
+    FUSE_STARLIGHT_CHANCES,
+    KEYWORD_CONFIRM_RETRIES,
+    SKILL_REPLACEMENT_MAX,
+    BUY_AGGRESSIVE_RETRY,
+)
+
+
+def sort_points(points, complete=0, threshold=40):
+    """按 X→Y 排序坐标点，可裁剪末尾。"""
+    points.sort(key=lambda p: p[0])
+    points.sort(key=lambda p: p[1] // threshold)
+    return points[:-complete] if complete > 0 else points
+
+
+def re_sort_points(points):
+    """购买后重排剩余商品坐标（左移/上移）。"""
+    commodity_every_line = 4
+    coins_point = auto.find_element("mirror/shop/shop_coins_assets.png", take_screenshot=True)
+    scale = get_scale()
+    if not coins_point or not points:
+        auto.mouse_click_blank(times=3)
+        coins_point = auto.find_element("mirror/shop/shop_coins_assets.png", take_screenshot=True)
+        if not coins_point or not points:
+            return points
+    step = SHOP_REFRESH_STEP * scale
+    first_grid_x = coins_point[0] + SHOP_FIRST_GRID_OFFSET_X * scale
+    new_points = []
+    for p in points:
+        orig_x, orig_y = p[0], p[1]
+        col = round((orig_x - first_grid_x) / step)
+        if col > 0:
+            new_x = orig_x - step
+            new_y = orig_y
+        else:
+            new_x = orig_x + (commodity_every_line - 1) * step
+            new_y = orig_y - step
+        new_points.append([new_x, new_y])
+    return new_points
+
 
 class Shop:
     def __init__(self, team_setting: TeamSetting):
@@ -98,49 +155,6 @@ class Shop:
                 break
 
     def buy_gifts(self):
-        def sort_points(points, complete=0, threshold=40):
-            # 第一步：先按 X 坐标排好（左右顺序）
-            points.sort(key=lambda p: p[0])
-            # 第二步：按 Y 坐标“归一化”后排序（上下顺序）
-            points.sort(key=lambda p: p[1] // threshold)
-
-            return points[:-complete] if complete > 0 else points
-
-        def re_sort_points(points):
-            commodity_every_line = 4
-            coins_point = auto.find_element("mirror/shop/shop_coins_assets.png", take_screenshot=True)
-            scale = cfg.set_win_size / 1440
-            if not coins_point or not points:
-                auto.mouse_click_blank(times=3)
-                coins_point = auto.find_element("mirror/shop/shop_coins_assets.png", take_screenshot=True)
-                if not coins_point or not points:
-                    return points
-            step = 300 * scale
-            first_grid_x = coins_point[0] + 150 * scale
-            new_points = []
-            for p in points:
-                orig_x, orig_y = p[0], p[1]
-
-                # 计算当前所在的列索引 (0, 1, 2, 3...)
-                # 注意：这里只用 x 判定列，不需要 round 整个坐标，只需要知道它在哪一列
-                col = round((orig_x - first_grid_x) / step)
-
-                if col > 0:
-                    # --- 情况 A: 还在同行 ---
-                    # y 值绝对不变，x 值减去一个 step
-                    new_x = orig_x - step
-                    new_y = orig_y
-                else:
-                    # --- 情况 B: 跨行移动 (col == 0) ---
-                    # x 值跳到最后一列：增加 (每行个数 - 1) 个 step
-                    # y 值向上移动一个 step
-                    new_x = orig_x + (commodity_every_line - 1) * step
-                    new_y = orig_y - step
-
-                new_points.append([new_x, new_y])
-
-            return new_points
-
         log.debug("开始执行饰品购买模块")
         keyword_refresh_count = 0
         normal_refresh_count = 0
@@ -149,143 +163,11 @@ class Shop:
             # 自动截图
             if auto.take_screenshot() is None:
                 continue
-            if self.shopping_strategy is False or (
-                self.shopping_strategy and self.shopping_strategy_select in (0, 1, 5)
-            ):
-                # 购买必买项（回血饰品）
-                log.debug("开始购买必买项")
-                for commodity in must_purchase:
-                    if auto.click_element(commodity, threshold=0.85):
-                        buy_chance = 10
-                        while auto.click_element("mirror/shop/purchase_assets.png") is False:
-                            while auto.take_screenshot() is None:
-                                continue
-                            if retry() is False:
-                                raise self.RestartGame()
-                            if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"):
-                                complete_count += 1
-                                break
-                            buy_chance -= 1
-                            if buy_chance <= 5:
-                                auto.click_element(commodity, threshold=0.85)
-                            if buy_chance <= 0:
-                                auto.mouse_click_blank(times=3)
-                                break
-                        sleep(1)
-                        auto.click_element(
-                            "mirror/road_in_mir/ego_gift_get_confirm_assets.png",
-                            take_screenshot=True,
-                        )
-                        while auto.take_screenshot() is None:
-                            continue
-
+            complete_count = self._buy_must_purchase(complete_count)
             if self.fuse_aggressive_switch:
-                log.debug("开始购买强化素材")
-                if self.shopping_strategy is False or (
-                    self.shopping_strategy and self.shopping_strategy_select in (1, 3, 4)
-                ):
-                    if auto.click_element("mirror/shop/level_IV_to_buy.png", threshold=0.82):
-                        sleep(1)
-                        while auto.take_screenshot() is None:
-                            continue
-                        if auto.click_element("mirror/shop/purchase_assets.png"):
-                            sleep(1)
-                            while auto.take_screenshot() is None:
-                                continue
-                            if retry() is False:
-                                raise self.RestartGame()
-                            auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png")
-                            complete_count += 1
-                            continue
-                        else:
-                            auto.mouse_click_blank()
-
-                    if auto.click_element("mirror/shop/level_III_to_buy.png", threshold=0.82):
-                        sleep(1)
-                        if auto.click_element("mirror/shop/purchase_assets.png", take_screenshot=True):
-                            sleep(1)
-                            if retry() is False:
-                                raise self.RestartGame()
-                            auto.click_element(
-                                "mirror/road_in_mir/ego_gift_get_confirm_assets.png",
-                                take_screenshot=True,
-                            )
-                            complete_count += 1
-                            continue
-                        else:
-                            auto.mouse_click_blank()
-
-            if self.shopping_strategy is False or (
-                self.shopping_strategy and self.shopping_strategy_select in (2, 4, 5)
-            ):
-                log.debug("开始购买本体系饰品")
-                # 购买体系饰品
-                system_gift = auto.find_element(
-                    f"mirror/shop/enhance_gifts/shop_{self.system}.png",
-                    find_type="image_with_multiple_targets",
-                    threshold=0.85,
-                    take_screenshot=True,
-                )
-                system_gift = sort_points(system_gift, complete_count)
-                while system_gift:
-                    gift = system_gift.pop(0)
-                    auto.mouse_action_with_pos((gift[0], gift[1]), offset=True)
-                    sleep(1)
-                    while auto.take_screenshot() is None:
-                        continue
-                    if self.system == "bleed" and not cfg.not_skip_whitegossypium:
-                        if auto.find_language_text("白棉花", ["white", "gossypium"], all_text=True):
-                            auto.mouse_click_blank(times=2)
-                        sleep(1)
-                    if auto.click_element("mirror/shop/purchase_assets.png", take_screenshot=True):
-                        sleep(1)
-                        auto.click_element(
-                            "mirror/road_in_mir/ego_gift_get_confirm_assets.png",
-                            take_screenshot=True,
-                        )
-                        complete_count += 1
-                        system_gift = re_sort_points(system_gift)
-                        auto.mouse_click_blank(times=3)
-                        continue
-                    else:
-                        if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png",take_screenshot=True):
-                            sleep(0.5)
-                        auto.mouse_click_blank(times=3)
-                        sleep(1)
-
-            if self.second_system and self.second_system_action[1]:
-                if self.second_system_setting == 1 or (self.second_system_setting == 0 and self.fuse_IV is True):
-                    system_gift = auto.find_element(
-                        f"mirror/shop/enhance_gifts/shop_{self.second_system_select}.png",
-                        find_type="image_with_multiple_targets",
-                        threshold=0.85,
-                    )
-                    system_gift = sort_points(system_gift, complete_count)
-                    while system_gift:
-                        gift = system_gift.pop(0)
-                        auto.mouse_action_with_pos((gift[0], gift[1]), offset=True)
-                        sleep(1)
-                        while auto.take_screenshot() is None:
-                            continue
-                        if self.system == "bleed" and not cfg.not_skip_whitegossypium:
-                            if auto.find_language_text("白棉花", ["white", "gossypium"], all_text=True):
-                                auto.mouse_click_blank(times=2)
-                            sleep(1)
-                        if auto.click_element("mirror/shop/purchase_assets.png", take_screenshot=True):
-                            sleep(1)
-                            auto.click_element(
-                                "mirror/road_in_mir/ego_gift_get_confirm_assets.png",
-                                take_screenshot=True,
-                            )
-                            complete_count += 1
-                            system_gift = re_sort_points(system_gift)
-                            auto.mouse_click_blank(times=3)
-                            continue
-                        else:
-                            if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png",take_screenshot=True):
-                                sleep(0.5)
-                            auto.mouse_click_blank(times=3)
-                            sleep(1)
+                complete_count = self._buy_enhancement_materials(complete_count)
+            complete_count = self._buy_system_gifts(complete_count)
+            complete_count = self._buy_second_system_gifts(complete_count)
 
             if retry() is False:
                 raise self.RestartGame()
@@ -294,55 +176,188 @@ class Shop:
 
             if my_remaining_money < 0:
                 log.warning("无法读取剩余金钱，跳过本次刷新")
-            elif keyword_refresh_count < self.max_keyword_refresh and my_remaining_money >= 300:
-                auto.mouse_click_blank(times=3)
-                if auto.click_element("mirror/shop/refresh_keyword_assets.png"):
-                    sleep(1)
-                    auto.click_element(
-                        f"mirror/shop/keyword/keyword_{self.system}.png",
-                        take_screenshot=True,
-                    )
-                    sleep(0.5)
-                    auto.click_element("mirror/shop/refresh_keyword_confirm_assets.png")
-                    for _ in range(3):
-                        if auto.find_element(
-                            "mirror/shop/refresh_keyword_confirm_assets.png",
-                            take_screenshot=True,
-                        ):
-                            log.debug("关键词刷新确认未生效，重试中")
-                            sleep(0.5)
-                            auto.click_element(
-                                f"mirror/shop/keyword/keyword_{self.system}.png",
-                                take_screenshot=True,
-                            )
-                            sleep(0.5)
-                            auto.click_element(
-                                "mirror/shop/refresh_keyword_confirm_assets.png",
-                                take_screenshot=True,
-                            )
-                        else:
-                            break
-                    keyword_refresh_count += 1
-                    auto.mouse_click_blank()
-                    sleep(3)
-                    if retry() is False:
-                        raise self.RestartGame()
-                    if self.skill_replacement and self.replacement < 3:
-                        self.replacement_skill()
-                    continue
-
-            if normal_refresh_count < self.max_normal_refresh and my_remaining_money >= 200:
-                auto.mouse_click_blank(times=3)
-                if auto.click_element("mirror/shop/refresh_assets.png"):
-                    normal_refresh_count += 1
-                    sleep(3)
-                    if retry() is False:
-                        raise self.RestartGame()
-                    if self.skill_replacement and self.replacement < 3:
-                        self.replacement_skill()
-                    continue
+            elif self._try_keyword_refresh(keyword_refresh_count, my_remaining_money):
+                keyword_refresh_count += 1
+                continue
+            elif self._try_normal_refresh(normal_refresh_count, my_remaining_money):
+                normal_refresh_count += 1
+                continue
 
             break
+
+    def _buy_must_purchase(self, complete_count: int) -> int:
+        """购买必买项（回血饰品）。返回更新后的 complete_count。"""
+        if self.shopping_strategy is not False and not (
+            self.shopping_strategy and self.shopping_strategy_select in (0, 1, 5)
+        ):
+            return complete_count
+        log.debug("开始购买必买项")
+        for commodity in must_purchase:
+            if not auto.click_element(commodity, threshold=0.85):
+                continue
+            buy_chance = BUY_RETRY_CHANCES
+            while auto.click_element("mirror/shop/purchase_assets.png") is False:
+                while auto.take_screenshot() is None:
+                    continue
+                if retry() is False:
+                    raise self.RestartGame()
+                if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"):
+                    complete_count += 1
+                    break
+                buy_chance -= 1
+                if buy_chance <= BUY_AGGRESSIVE_RETRY:
+                    auto.click_element(commodity, threshold=0.85)
+                if buy_chance <= 0:
+                    auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
+                    break
+            sleep(WAIT["MEDIUM"])
+            auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True)
+            while auto.take_screenshot() is None:
+                continue
+        return complete_count
+
+    def _buy_single_enhancement(self, asset: str, complete_count: int) -> int:
+        """购买单个强化素材。返回更新后的 complete_count。"""
+        if not auto.click_element(asset, threshold=0.82):
+            return complete_count
+        sleep(WAIT["MEDIUM"])
+        while auto.take_screenshot() is None:
+            continue
+        if auto.click_element("mirror/shop/purchase_assets.png"):
+            sleep(WAIT["MEDIUM"])
+            while auto.take_screenshot() is None:
+                continue
+            if retry() is False:
+                raise self.RestartGame()
+            auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png")
+            return complete_count + 1
+        auto.mouse_click_blank()
+        return complete_count
+
+    def _buy_enhancement_materials(self, complete_count: int) -> int:
+        """购买强化素材（IV级和III级）。"""
+        if self.shopping_strategy is not False and not (
+            self.shopping_strategy and self.shopping_strategy_select in (1, 3, 4)
+        ):
+            return complete_count
+        log.debug("开始购买强化素材")
+        complete_count = self._buy_single_enhancement("mirror/shop/level_IV_to_buy.png", complete_count)
+        complete_count = self._buy_single_enhancement("mirror/shop/level_III_to_buy.png", complete_count)
+        return complete_count
+
+    def _buy_system_gifts(self, complete_count: int) -> int:
+        """购买本体系饰品。"""
+        if self.shopping_strategy is not False and not (
+            self.shopping_strategy and self.shopping_strategy_select in (2, 4, 5)
+        ):
+            return complete_count
+        log.debug("开始购买本体系饰品")
+        system_gift = auto.find_element(
+            f"mirror/shop/enhance_gifts/shop_{self.system}.png",
+            find_type="image_with_multiple_targets",
+            threshold=0.85,
+            take_screenshot=True,
+        )
+        system_gift = sort_points(system_gift, complete_count)
+        while system_gift:
+            gift = system_gift.pop(0)
+            auto.mouse_action_with_pos((gift[0], gift[1]), offset=True)
+            sleep(WAIT["MEDIUM"])
+            while auto.take_screenshot() is None:
+                continue
+            if self.system == "bleed" and not cfg.not_skip_whitegossypium:
+                if auto.find_language_text("白棉花", ["white", "gossypium"], all_text=True):
+                    auto.mouse_click_blank(times=2)
+                sleep(WAIT["MEDIUM"])
+            if auto.click_element("mirror/shop/purchase_assets.png", take_screenshot=True):
+                sleep(WAIT["MEDIUM"])
+                auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True)
+                complete_count += 1
+                system_gift = re_sort_points(system_gift)
+                auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
+                continue
+            if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True):
+                sleep(WAIT["SHORT"])
+            auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
+            sleep(WAIT["MEDIUM"])
+        return complete_count
+
+    def _buy_second_system_gifts(self, complete_count: int) -> int:
+        """购买第二体系饰品。"""
+        if not self.second_system or not self.second_system_action[1]:
+            return complete_count
+        if not (self.second_system_setting == 1 or (self.second_system_setting == 0 and self.fuse_IV is True)):
+            return complete_count
+        system_gift = auto.find_element(
+            f"mirror/shop/enhance_gifts/shop_{self.second_system_select}.png",
+            find_type="image_with_multiple_targets",
+            threshold=0.85,
+        )
+        system_gift = sort_points(system_gift, complete_count)
+        while system_gift:
+            gift = system_gift.pop(0)
+            auto.mouse_action_with_pos((gift[0], gift[1]), offset=True)
+            sleep(WAIT["MEDIUM"])
+            while auto.take_screenshot() is None:
+                continue
+            if self.system == "bleed" and not cfg.not_skip_whitegossypium:
+                if auto.find_language_text("白棉花", ["white", "gossypium"], all_text=True):
+                    auto.mouse_click_blank(times=2)
+                sleep(WAIT["MEDIUM"])
+            if auto.click_element("mirror/shop/purchase_assets.png", take_screenshot=True):
+                sleep(WAIT["MEDIUM"])
+                auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True)
+                complete_count += 1
+                system_gift = re_sort_points(system_gift)
+                auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
+                continue
+            if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True):
+                sleep(WAIT["SHORT"])
+            auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
+            sleep(WAIT["MEDIUM"])
+        return complete_count
+
+    def _try_keyword_refresh(self, refresh_count: int, money: int) -> bool:
+        """尝试关键词刷新。返回 True 表示执行了刷新。"""
+        if refresh_count >= self.max_keyword_refresh or money < 300:
+            return False
+        auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
+        if not auto.click_element("mirror/shop/refresh_keyword_assets.png"):
+            return False
+        sleep(WAIT["MEDIUM"])
+        auto.click_element(f"mirror/shop/keyword/keyword_{self.system}.png", take_screenshot=True)
+        sleep(WAIT["SHORT"])
+        auto.click_element("mirror/shop/refresh_keyword_confirm_assets.png")
+        for _ in range(KEYWORD_CONFIRM_RETRIES):
+            if auto.find_element("mirror/shop/refresh_keyword_confirm_assets.png", take_screenshot=True):
+                log.debug("关键词刷新确认未生效，重试中")
+                sleep(WAIT["SHORT"])
+                auto.click_element(f"mirror/shop/keyword/keyword_{self.system}.png", take_screenshot=True)
+                sleep(WAIT["SHORT"])
+                auto.click_element("mirror/shop/refresh_keyword_confirm_assets.png", take_screenshot=True)
+            else:
+                break
+        auto.mouse_click_blank()
+        sleep(WAIT["VERY_LONG"])
+        if retry() is False:
+            raise self.RestartGame()
+        if self.skill_replacement and self.replacement < SKILL_REPLACEMENT_MAX:
+            self.replacement_skill()
+        return True
+
+    def _try_normal_refresh(self, refresh_count: int, money: int) -> bool:
+        """尝试普通刷新。返回 True 表示执行了刷新。"""
+        if refresh_count >= self.max_normal_refresh or money < 200:
+            return False
+        auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
+        if not auto.click_element("mirror/shop/refresh_assets.png"):
+            return False
+        sleep(WAIT["VERY_LONG"])
+        if retry() is False:
+            raise self.RestartGame()
+        if self.skill_replacement and self.replacement < SKILL_REPLACEMENT_MAX:
+            self.replacement_skill()
+        return True
 
     def fuse_useless_gifts_aggressive(self):
         """合成无用饰品_激进版"""
@@ -1027,11 +1042,7 @@ class Shop:
             right = int(round(_ENHANCE_SCAN_REGION_REL["right"] * width))
             bottom = int(round(_ENHANCE_SCAN_REGION_REL["bottom"] * height))
 
-            return [
-                point
-                for point in points
-                if left <= int(point[0]) <= right and top <= int(point[1]) <= bottom
-            ]
+            return [point for point in points if left <= int(point[0]) <= right and top <= int(point[1]) <= bottom]
 
         def check_enhanced(pos):
             for p in self.enhance_gifts_list:
