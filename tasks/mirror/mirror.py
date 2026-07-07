@@ -471,20 +471,13 @@ class Mirror:
 
     def _run_close_infinity(self) -> bool:
         """关闭无限镜牢弹窗。"""
-        if not self.auto.find_element("mirror/infinity_mirror_assets.png"):
-            return False
-        self.auto.click_element("mirror/infinity_mirror_close_assets.png")
-        return True
+        from module4_decision_layer.handlers.game import CloseInfinityHandler
+        return CloseInfinityHandler()(auto=self.auto)
 
     def _run_dismiss_prompt(self) -> bool:
         """关闭首屏提示。"""
-        if not (
-            self.auto.find_element("home/first_prompt_assets.png", model="clam")
-            and self.auto.find_element("home/back_assets.png", model="normal")
-        ):
-            return False
-        self.auto.click_element("home/back_assets.png")
-        return True
+        from module4_decision_layer.handlers.game import DismissPromptHandler
+        return DismissPromptHandler()(auto=self.auto)
 
     def run(self):
         """镜牢主循环：状态机驱动的优先级调度。"""
