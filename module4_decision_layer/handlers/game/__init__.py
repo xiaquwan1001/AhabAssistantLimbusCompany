@@ -34,6 +34,22 @@ class DismissPromptHandler:
         return True
 
 
+class EgoGiftConfirmHandler:
+    """确认获取EGO饰品。
+
+    对应旧 Mirror._run_ego_gift_confirm()
+    """
+
+    def __init__(self, auto: Optional[AutomationPort] = None):
+        self.auto = auto
+
+    def __call__(self, auto: Optional[AutomationPort] = None) -> bool:
+        a = auto or self.auto
+        if a is None:
+            raise ValueError("EgoGiftConfirmHandler requires 'auto' (AutomationPort)")
+        return bool(a.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"))
+
+
 class CloseInfinityHandler:
     """关闭无限镜牢弹窗。
 
@@ -50,4 +66,41 @@ class CloseInfinityHandler:
         if not a.find_element("mirror/infinity_mirror_assets.png"):
             return False
         a.click_element("mirror/infinity_mirror_close_assets.png")
+        return True
+
+
+class EnterNodeHandler:
+    """进入寻路线路节点。
+
+    对应旧 Mirror._run_enter_node()
+    """
+
+    def __init__(self, auto: Optional[AutomationPort] = None):
+        self.auto = auto
+
+    def __call__(self, auto: Optional[AutomationPort] = None) -> bool:
+        a = auto or self.auto
+        if a is None:
+            raise ValueError("EnterNodeHandler requires 'auto' (AutomationPort)")
+        return bool(a.click_element("mirror/road_in_mir/enter_assets.png"))
+
+
+class EventEffectHandler:
+    """处理选择增益事件（少见）。
+
+    对应旧 Mirror._run_event_effect()
+    """
+
+    def __init__(self, auto: Optional[AutomationPort] = None):
+        self.auto = auto
+
+    def __call__(self, auto: Optional[AutomationPort] = None) -> bool:
+        a = auto or self.auto
+        if a is None:
+            raise ValueError("EventEffectHandler requires 'auto' (AutomationPort)")
+        if not a.click_element(
+            "mirror/road_in_mir/event_effect_button.png", threshold=0.75
+        ):
+            return False
+        a.click_element("mirror/road_in_mir/select_event_effect_confirm.png")
         return True

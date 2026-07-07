@@ -273,11 +273,9 @@ class Mirror:
         return True
 
     def _run_event_effect(self) -> bool:
-        """处理选择增益事件（少见）。处理成功返回 True。"""
-        if not self.auto.click_element("mirror/road_in_mir/event_effect_button.png", threshold=0.75):
-            return False
-        self.auto.click_element("mirror/road_in_mir/select_event_effect_confirm.png")
-        return True
+        """处理选择增益事件（少见）。"""
+        from module4_decision_layer.handlers.game import EventEffectHandler
+        return EventEffectHandler()(auto=self.auto)
 
     def _run_road_navigation(self) -> bool:
         """在镜牢中寻路。返回 True 表示已处理。"""
@@ -311,7 +309,8 @@ class Mirror:
 
     def _run_enter_node(self) -> bool:
         """进入寻路线路节点。"""
-        return bool(self.auto.click_element("mirror/road_in_mir/enter_assets.png"))
+        from module4_decision_layer.handlers.game import EnterNodeHandler
+        return EnterNodeHandler()(auto=self.auto)
 
     def _run_team_select(self) -> bool:
         """选择镜牢队伍。"""
@@ -410,7 +409,9 @@ class Mirror:
 
     def _run_ego_gift_confirm(self) -> bool:
         """确认获取EGO饰品。"""
-        return bool(self.auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"))
+        from module4_decision_layer.handlers.game import EgoGiftConfirmHandler
+
+        return EgoGiftConfirmHandler()(auto=self.auto)
 
     def _run_event(self) -> bool:
         """事件处理。"""
