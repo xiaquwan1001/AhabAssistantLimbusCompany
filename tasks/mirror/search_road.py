@@ -8,6 +8,7 @@ from module.config import cfg
 from module.logger import log
 from module.my_error.my_error import InputAttributeError
 from tasks.base.retry import retry
+from tasks.mirror.constants import get_scale
 
 
 class MirrorMap:
@@ -125,82 +126,110 @@ def get_node_weight(x, y):
 
 # 在默认缩放情况下，进行镜牢寻路
 def search_road_default_distance():
+    """默认缩放距离下的镜牢寻路。先检测权重3节点，再遍历全部节点。"""
     start_time = time.time()
-    scale = cfg.set_win_size / 1440
-    three_roads = [
-        [500 * scale, 50 * scale],
-        [500 * scale, 450 * scale],
-        [500 * scale, -400 * scale],
-    ]
+    scale = get_scale()
+    three_roads = _make_three_roads(scale)
 
     auto.mouse_to_blank()
     while auto.take_screenshot() is None:
         continue
     if retry() is False:
         return False
-    # 判断中、下两个节点是否有权重3的节点，有的话直接选择进入
-    node_weight = {}
-    if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
-        for road in three_roads[:2]:
-            node_x = bus_position[0] + road[0]
-            node_y = bus_position[1] + road[1]
-            weight = get_node_weight(node_x, node_y)
-            node_weight[(node_x, node_y)] = weight
-        max_weight = max(node_weight.values())
-        if max_weight == 3:
-            road_list = sorted(node_weight, key=node_weight.get, reverse=True)
-            road = road_list[0]
-            if 0 < road[0] < cfg.set_win_size * 16 / 9 and 0 < road[1] < cfg.set_win_size:
-                auto.mouse_click(road[0], road[1])
-                sleep(0.75)
-                if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
-                    return True
-    # 如果中、下两个节点没有权重3的节点，查看所有节点的权重，选择权重最大的节点进入
-    if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
-        from tasks.base.retry import check_times
 
-        while True:
-            if auto.get_restore_time() is not None:
-                start_time = max(start_time, auto.get_restore_time())
-            if check_times(start_time, logs=False):
-                from tasks.base.back_init_menu import back_init_menu
+    # 优先选择高权重节点
+    if _try_weighted_node(three_roads[:2], scale):
+        return True
 
-                back_init_menu()
-                return False
-            if 600 * scale < bus_position[1] < 700 * scale:
-                break
-            dy = 650 * scale - bus_position[1]
-            auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=0, dy=dy)
-            sleep(1)
-            auto.mouse_to_blank()
+    bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
+    if bus_position is None:
+        return False
 
-            bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
-            if bus_position is None:
-                break
+    # 将 bus 拖到垂直中心
+    bus_position = _drag_bus_to_center(bus_position, scale, start_time)
+    if bus_position is None:
+        return False
 
-    node_list = []
-    if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
-        for road in three_roads[:2]:
-            node_x = bus_position[0] + road[0]
-            node_y = bus_position[1] + road[1]
-            node_list.append((node_x, node_y))
-        old_weight = node_weight.values()
-        all_node_weight = dict(zip(node_list, old_weight))
-        for road in three_roads[2:]:
-            node_x = bus_position[0] + road[0]
-            node_y = bus_position[1] + road[1]
-            weight = get_node_weight(node_x, node_y)
-            all_node_weight[(node_x, node_y)] = weight
-        all_node_weight[bus_position[0], bus_position[1]] = -6
-        # 根据all_node_weight，按照各个键的值，从大到小以生成只有键的新的列表
-        road_list = sorted(all_node_weight, key=all_node_weight.get, reverse=True)
-        for road in road_list:
-            if 0 < road[0] < cfg.set_win_size * 16 / 9 and 0 < road[1] < cfg.set_win_size:
-                auto.mouse_click(road[0], road[1])
-                sleep(0.75)
-                if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
-                    return True
+    # 遍历所有节点，选权重最大的
+    node_list = _build_node_list(bus_position, three_roads)
+    all_node_weight = _compute_node_weights(bus_position, three_roads, node_list)
+    for road in sorted(all_node_weight, key=all_node_weight.get, reverse=True):
+        if 0 < road[0] < cfg.set_win_size * 16 / 9 and 0 < road[1] < cfg.set_win_size:
+            auto.mouse_click(road[0], road[1])
+            sleep(0.75)
+            if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
+                return True
     return False
+
+
+def _make_three_roads(scale: float) -> list:
+    """返回三条寻路偏移量 [x, y]。"""
+    return [
+        [500 * scale, 50 * scale],
+        [500 * scale, 450 * scale],
+        [500 * scale, -400 * scale],
+    ]
+
+
+def _try_weighted_node(roads: list, scale: float) -> bool:
+    """检测 roads 中是否有权重3的节点，直接选择进入。"""
+    if not (bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)):
+        return False
+    node_weight = {}
+    for road in roads:
+        weight = get_node_weight(bus_position[0] + road[0], bus_position[1] + road[1])
+        node_weight[(bus_position[0] + road[0], bus_position[1] + road[1])] = weight
+    if max(node_weight.values()) == 3:
+        road_list = sorted(node_weight, key=node_weight.get, reverse=True)
+        road = road_list[0]
+        if 0 < road[0] < cfg.set_win_size * 16 / 9 and 0 < road[1] < cfg.set_win_size:
+            auto.mouse_click(road[0], road[1])
+            sleep(0.75)
+            if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
+                return True
+    return False
+
+
+def _drag_bus_to_center(bus_position, scale: float, start_time: float):
+    """将 bus 拖动到垂直中心区域 (600-700 y)。"""
+    from tasks.base.retry import check_times
+
+    while True:
+        if auto.get_restore_time() is not None:
+            start_time = max(start_time, auto.get_restore_time())
+        if check_times(start_time, logs=False):
+            from tasks.base.back_init_menu import back_init_menu
+            back_init_menu()
+            return None
+        if 600 * scale < bus_position[1] < 700 * scale:
+            break
+        dy = 650 * scale - bus_position[1]
+        auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=0, dy=dy)
+        sleep(1)
+        auto.mouse_to_blank()
+        bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
+        if bus_position is None:
+            break
+    return bus_position
+
+
+def _build_node_list(bus_position, three_roads: list) -> list:
+    """构建三条路的节点坐标列表（中、下两路）。"""
+    node_list = []
+    for road in three_roads[:2]:
+        node_list.append((bus_position[0] + road[0], bus_position[1] + road[1]))
+    return node_list
+
+
+def _compute_node_weights(bus_position, three_roads: list, node_list: list) -> dict:
+    """计算中下上路所有节点的权重。返回 {坐标: 权重}。"""
+    all_node_weight = dict(zip(node_list, [get_node_weight(x, y) for x, y in node_list]))
+    for road in three_roads[2:]:
+        all_node_weight[(bus_position[0] + road[0], bus_position[1] + road[1])] = get_node_weight(
+            bus_position[0] + road[0], bus_position[1] + road[1]
+        )
+    all_node_weight[bus_position[0], bus_position[1]] = -6
+    return all_node_weight
 
 
 # 如果默认缩放无法镜牢寻路，进行滚轮缩放后继续寻路
@@ -234,6 +263,7 @@ def search_road_farthest_distance():
 
 
 def search_road_from_road_map(hard_mode=False):
+    """使用路网地图进行寻路。返回 (directions, road_class_list) 或 (False, [])。"""
     start_time = time.time()
     scale = cfg.set_win_size / 1440
     road = []
@@ -244,40 +274,19 @@ def search_road_from_road_map(hard_mode=False):
         if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
             return True, True
 
-    if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
-        from tasks.base.retry import check_times
-
-        change_times = 5
-        while True:
-            if auto.get_restore_time() is not None:
-                start_time = max(start_time, auto.get_restore_time())
-            if check_times(start_time, logs=False):
-                from tasks.base.back_init_menu import back_init_menu
-
-                back_init_menu()
-                return False, []
-            if 675 * scale < bus_position[1] < 700 * scale and 150 * scale > bus_position[0]:
-                bus = bus_position
-                break
-            dx = 80 * scale - bus_position[0]
-            dy = 690 * scale - bus_position[1]
-            auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
-            sleep(0.5)
-            auto.mouse_to_blank()
-
-            bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
-            if bus_position is None:
-                break
-            change_times -= 1
-            if change_times <= 0:
-                bus = bus_position
-                break
+    bus = _align_bus_to_target(start_time, scale)
+    if bus is None:
+        return False, []
 
     bus_pos = auto.find_element("mirror/mybus_default_distance.png")
     all_nodes = identify_nodes(bus[0])
+    if all_nodes is None:
+        return [], []
+
     y_area = divide_the_area_by_y(all_nodes)
     reset_position = False
     initial_bus_pos = Position.MID
+
     if len(y_area) == 2:
         if bus_pos[1] > y_area[0][0][1][1] + 50 * scale:
             reset_position = "Bottom"
@@ -290,46 +299,86 @@ def search_road_from_road_map(hard_mode=False):
         if len(all_road) == 0:
             road = ["M"]
         else:
-            if all_road[0][0][0] == "DOWN":
-                road = ["D"]
-            else:
-                road = ["U"]
-    if reset_position is not False:
-        if reset_position == "Bottom":
-            set_y_position = 1100 * scale
-        else:
-            set_y_position = 250 * scale
-        if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
-            from tasks.base.retry import check_times
+            road = ["D"] if all_road[0][0][0] == "DOWN" else ["U"]
 
-            while True:
-                if auto.get_restore_time() is not None:
-                    start_time = max(start_time, auto.get_restore_time())
-                if check_times(start_time, logs=False):
-                    from tasks.base.back_init_menu import back_init_menu
-
-                    back_init_menu()
-                    return False, []
-                if (
-                    set_y_position - 50 * scale < bus_position[1] < set_y_position + 50 * scale
-                    and 500 * scale < bus_position[0] < 600 * scale
-                ):
-                    bus = bus_position
-                    break
-                dx = 550 * scale - bus_position[0]
-                dy = set_y_position - bus_position[1]
-                auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
-                sleep(0.5)
-                auto.mouse_to_blank()
-
-                bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
-                if bus_position is None:
-                    break
+    if reset_position:
+        bus = _reposition_bus_by_y(start_time, scale, reset_position)
+        if bus is None:
+            return False, []
         all_nodes = identify_nodes(bus[0])
+        if all_nodes is None:
+            return [], []
 
-    if len(road) != 0:
+    if road:
         return road, ["unknown"]
 
+    return _build_and_search_route(all_nodes, bus, initial_bus_pos, hard_mode)
+
+
+def _align_bus_to_target(start_time: float, scale: float):
+    """将 bus 拖动到目标位置（675-700 y, <150 x）。返回 bus 坐标或 None。"""
+    from tasks.base.retry import check_times
+
+    bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
+    if bus_position is None:
+        return None
+    change_times = 5
+    while True:
+        if auto.get_restore_time() is not None:
+            start_time = max(start_time, auto.get_restore_time())
+        if check_times(start_time, logs=False):
+            from tasks.base.back_init_menu import back_init_menu
+            back_init_menu()
+            return None
+        if 675 * scale < bus_position[1] < 700 * scale and 150 * scale > bus_position[0]:
+            return bus_position
+        dx = 80 * scale - bus_position[0]
+        dy = 690 * scale - bus_position[1]
+        auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
+        sleep(0.5)
+        auto.mouse_to_blank()
+        bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
+        if bus_position is None:
+            return None
+        change_times -= 1
+        if change_times <= 0:
+            return bus_position
+
+
+def _reposition_bus_by_y(start_time: float, scale: float, reset_position: str):
+    """根据 y 区域重定位 bus。返回 bus 坐标或 None。"""
+    from tasks.base.retry import check_times
+
+    set_y_position = 1100 * scale if reset_position == "Bottom" else 250 * scale
+    bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
+    if bus_position is None:
+        return None
+
+    while True:
+        if auto.get_restore_time() is not None:
+            start_time = max(start_time, auto.get_restore_time())
+        if check_times(start_time, logs=False):
+            from tasks.base.back_init_menu import back_init_menu
+            back_init_menu()
+            return None
+        if (
+            set_y_position - 50 * scale < bus_position[1] < set_y_position + 50 * scale
+            and 500 * scale < bus_position[0] < 600 * scale
+        ):
+            return bus_position
+        dx = 550 * scale - bus_position[0]
+        dy = set_y_position - bus_position[1]
+        auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
+        sleep(0.5)
+        auto.mouse_to_blank()
+        bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
+        if bus_position is None:
+            return None
+
+
+def _build_and_search_route(all_nodes, bus, initial_bus_pos, hard_mode):
+    """构建路由图并搜索最优路径。返回 (directions, road_class_list)。"""
+    bus_pos = auto.find_element("mirror/mybus_default_distance.png")
     all_nodes_layer = divide_the_area_by_x(all_nodes)
     all_road = divide_the_area_by_x(identify_road(bus[0]))
 
@@ -337,17 +386,14 @@ def search_road_from_road_map(hard_mode=False):
     route_graph.init_road(all_road, bus[0], bus_pos[1])
 
     min_weight, path = route_graph.find_min_weight_route()
-
     if path:
-        # 生成方向列表
         directions, road_class_list = route_graph.get_path_directions(path)
         log.debug(f"最小权重: {min_weight}")
         log.debug(f"路径方向: {directions}")
         log.debug(f"行走路径: {road_class_list}")
         return directions, road_class_list
-    else:
-        log.warning("未能检测到有效路径")
 
+    log.warning("未能检测到有效路径")
     return [], []
 
 
@@ -356,141 +402,107 @@ def search_road_from_road_map(hard_mode=False):
 
 
 def identify_nodes(bus_x):
+    """使用 ONNX YOLO 模型检测镜牢节点。返回 [class_name, (x, y)] 列表，无结果返回 None。"""
+    detections = _run_yolo_inference()
+    if detections is None:
+        return None
+    return _yolo_detections_to_nodes(detections, bus_x)
+
+
+# ── ONNX YOLO 引擎（session 缓存，惰性加载） ──
+
+_ONNX_SESSION = None
+_ONNX_CLASSES = [
+    "battle", "boss_battle", "event", "hard_battle",
+    "hard_battle_2", "shop", "small_boss_battle",
+]
+
+
+def _get_onnx_session():
+    """获取缓存的 ONNX 推理 session（惰性初始化）。"""
+    global _ONNX_SESSION
+    if _ONNX_SESSION is None:
+        import onnxruntime as ort
+        _ONNX_SESSION = ort.InferenceSession("./assets/model/best.onnx")
+    return _ONNX_SESSION
+
+
+def _run_yolo_inference() -> list | None:
+    """截图 → YOLO 推理 → NMS 后处理。返回检测结果列表，无结果返回 None。"""
     import numpy as np
-    import onnxruntime as ort
 
-    # 定义检测目标的类别标签（与模型训练时的类别一致）
-    CLASSES = [
-        "battle",
-        "boss_battle",
-        "event",
-        "hard_battle",
-        "hard_battle_2",
-        "shop",
-        "small_boss_battle",
-    ]
+    session = _get_onnx_session()
 
-    no_flag = False  # 标记是否检测到目标（初始为 False，未检测到时设为 True）
-
-    # 加载 ONNX 格式的目标检测模型
-    session = ort.InferenceSession("./assets/model/best.onnx")
-
-    # 读取原始图像（BGR 格式，由 OpenCV 读取）
     auto.take_screenshot(gray=False)
     original_image: np.ndarray = np.array(auto.screenshot)
-    [height, width, _] = original_image.shape  # 获取原始图像的高、宽、通道数
-
-    # 创建正方形空白图像（边长为原始图像的最大边），用于保持图像比例并避免变形
-    length = max((height, width))  # 正方形边长取原始图像的高或宽的最大值
-    image = np.zeros((length, length, 3), np.uint8)  # 初始化全黑正方形图像
-    image[0:height, 0:width] = original_image  # 将原始图像粘贴到正方形的左上角区域
-
-    # 计算缩放比例（正方形边长 → 模型输入尺寸 640 的缩放因子）
+    height, width = original_image.shape[:2]
+    length = max(height, width)
+    image = np.zeros((length, length, 3), np.uint8)
+    image[0:height, 0:width] = original_image
     scale = length / 640
 
-    # 将图像转换为模型所需的输入格式（blob）
-    # blobFromImage 参数说明：
-    # - image: 输入图像（正方形）
-    # - scalefactor=1/255: 像素值归一化（0-255 → 0-1）
-    # - size=(640, 640): 模型输入的尺寸（宽高均为 640）
-    # - swapRB=True: 交换 RGB 通道（OpenCV 读取的是 BGR，模型可能需要 RGB）
     blob = cv2.dnn.blobFromImage(image, scalefactor=1 / 255, size=(640, 640), swapRB=True)
+    outputs = session.run(None, {session.get_inputs()[0].name: blob})
+    outputs = outputs[0]
+    outputs = np.array([cv2.transpose(outputs[0])])
+    rows = outputs.shape[1]
 
-    # 执行模型推理（输入为 blob）
-    outputs = session.run(None, {session.get_inputs()[0].name: blob})  # 输出为模型预测结果
-
-    outputs = outputs[0]  # 提取第一个输出（YOLO 通常输出一个包含所有检测结果的数组）
-    outputs = np.array([cv2.transpose(outputs[0])])  # 转置维度（适配后续处理逻辑）
-    rows = outputs.shape[1]  # 获取检测结果的数量（每行对应一个目标的预测信息）
-
-    boxes = []  # 存储边界框坐标（格式：[x_center, y_center, width, height]）
-    scores = []  # 存储检测置信度
-    class_ids = []  # 存储类别 ID
-
-    # 遍历所有检测结果（每行对应一个目标的预测信息）
+    boxes, scores, class_ids = [], [], []
     for i in range(rows):
-        # 提取类别置信度（前 4 列是边界框坐标，第 5 列及之后是各分类得分）
         classes_scores = outputs[0][i][4:]
+        (_, maxScore, _, (_, maxClassIndex)) = cv2.minMaxLoc(classes_scores)
+        if maxScore < 0.25:
+            continue
+        box = [
+            outputs[0][i][0] - (0.5 * outputs[0][i][2]),
+            outputs[0][i][1] - (0.5 * outputs[0][i][3]),
+            outputs[0][i][2],
+            outputs[0][i][3],
+        ]
+        boxes.append(box)
+        scores.append(maxScore)
+        class_ids.append(maxClassIndex)
 
-        # 找到当前目标的最大类别置信度及其对应的类别索引
-        (minScore, maxScore, minClassLoc, (x, maxClassIndex)) = cv2.minMaxLoc(classes_scores)
-
-        # 若最大置信度超过阈值（0.25），则保留该检测结果
-        if maxScore >= 0.25:
-            # 计算边界框的左上角坐标和宽高（YOLO 输出为中心点坐标 + 宽高，需转换）
-            box = [
-                outputs[0][i][0] - (0.5 * outputs[0][i][2]),  # 左上角 x = 中心点 x - 半宽
-                outputs[0][i][1] - (0.5 * outputs[0][i][3]),  # 左上角 y = 中心点 y - 半高
-                outputs[0][i][2],  # 宽度（中心点 x 到右边界点的距离）
-                outputs[0][i][3],  # 高度（中心点 y 到下边界点的距离）
-            ]
-            boxes.append(box)  # 保存边界框
-            scores.append(maxScore)  # 保存置信度
-            class_ids.append(maxClassIndex)  # 保存类别 ID
-
-    # 使用 NMS 抑制重叠的边界框（保留置信度高的框）
-    # 参数说明：
-    # - boxes: 边界框列表（格式：[x1, y1, w, h]）
-    # - scores: 置信度列表
-    # - score_threshold=0: 置信度阈值（此处未过滤低分，因前面已过滤）
-    # - nms_threshold=0.4: 重叠框的交并比（IoU）阈值（>0.4 则抑制）
     result_boxes = cv2.dnn.NMSBoxes(boxes, scores, 0, 0.4, 0.5)
-
-    detections = []  # 存储最终的检测结果（字典列表）
-
-    if len(result_boxes) > 0:  # 若有有效检测结果
-        for i in range(len(result_boxes)):
-            index = result_boxes[i]  # 获取当前框在原始列表中的索引（NMS 输出为二维数组）
-            box = boxes[index]  # 获取对应的边界框
-
-            # 构造检测结果字典（包含类别、置信度、边界框等信息）
-            detection = {
-                "class_id": class_ids[index],
-                "class_name": CLASSES[class_ids[index]],
-                "confidence": scores[index],
-                "box": box,  # 原始边界框（基于 640x640 输入尺寸）
-                "scale": scale,  # 缩放比例（用于还原到原始图像尺寸）
-            }
-            detections.append(detection)  # 添加到结果列表
-    else:
-        no_flag = True  # 无检测结果时标记为 True
-
-    if no_flag:
+    if len(result_boxes) == 0:
         return None
 
+    detections = []
+    for i in range(len(result_boxes)):
+        index = result_boxes[i]
+        box = boxes[index]
+        detections.append({
+            "class_id": class_ids[index],
+            "class_name": _ONNX_CLASSES[class_ids[index]],
+            "confidence": scores[index],
+            "box": box,
+            "scale": scale,
+        })
+    return detections
+
+
+def _yolo_detections_to_nodes(detections: list, bus_x: float) -> list:
+    """将 YOLO 检测结果转换为 [(class_name, (x, y)), ...]，过滤 bus 左侧的杂点。"""
+    import numpy as np
+
     node_list = []
-
-    # 遍历每个字典并处理
     for d in detections:
-        # 提取class_name
-        class_name = d["class_name"]
-
-        # 提取box并计算中心点（转换为Python浮点数）
         box = d["box"]
-        x1 = box[0].item()  # 左上角x（转换为Python float）
-        y1 = box[1].item()  # 左上角y（转换为Python float）
-        w = box[2].item()  # 宽度（转换为Python float）
-        h = box[3].item()  # 高度（转换为Python float）
-        center_x = int((x1 + w / 2) * scale)
-        center_y = int((y1 + h / 2) * scale)
-
+        x1 = box[0].item()
+        y1 = box[1].item()
+        w = box[2].item()
+        h = box[3].item()
+        center_x = int((x1 + w / 2) * d["scale"])
+        center_y = int((y1 + h / 2) * d["scale"])
         if center_x < bus_x + 50:
             continue
-
-        # 组成子列表并添加到节点总列表
-        node_list.append([class_name, (center_x, center_y)])  # 中心点用元组存储，也可改为列表
-
+        node_list.append([d["class_name"], (center_x, center_y)])
     return node_list
 
 
 def identify_road(bus_x, min_length=160, merge_distance=230):
     """
     增强版LSD对角线检测，完整输出模块，显示方向标记和中心点
-
-    参数：
-        image_path (str): 输入图像路径
-        min_length (int): 线段最小长度阈值（用于筛选有效线段）
-        merge_distance (int): 线段合并的最大距离阈值（用于合并相近线段）
     """
     import math
 
@@ -498,157 +510,142 @@ def identify_road(bus_x, min_length=160, merge_distance=230):
 
     min_length = min_length * (cfg.set_win_size / 1440)
 
-    # === 可靠检测阶段 ===
-    def get_detected_lines(img):
-        """获取检测到的所有线段"""
-        lsd = cv2.createLineSegmentDetector(0)
-        detected = lsd.detect(img)
-        if detected and detected[0] is not None:
-            return detected[0]
-
     auto.take_screenshot()
     screenshot = np.array(auto.screenshot)
-    raw_lines = get_detected_lines(screenshot)  # 调用检测函数获取原始线段数据
-    if raw_lines is None or len(raw_lines) == 0:  # 检测结果为空
-        log.warning("⚠️ 未检测到任何线段")  # 提示无结果
-        return []  # 返回空列表
+    raw_lines = _lsd_detect_lines(screenshot)
+    if raw_lines is None or len(raw_lines) == 0:
+        log.warning("⚠️ 未检测到任何线段")
+        return []
 
-    # 数据格式标准化（统一不同算法的输出格式）
+    segments_data = _parse_segments(raw_lines)
+    diagonal_candidates = _filter_diagonal_candidates(segments_data, min_length)
+    if not diagonal_candidates:
+        return []
+
+    merged_records = _merge_lines(diagonal_candidates, merge_distance, min_length)
+
+    return _build_segment_list(merged_records, bus_x)
+
+
+def _lsd_detect_lines(img) -> list | None:
+    """LSD 线段检测。返回原始线段数据或 None。"""
+    lsd = cv2.createLineSegmentDetector(0)
+    detected = lsd.detect(img)
+    if detected and detected[0] is not None:
+        return detected[0]
+    return None
+
+
+def _parse_segments(raw_lines: list) -> list:
+    """将原始 LSD 输出解析为结构化 segment 字典列表。"""
+    import math
+
     segments_data = []
     for line_info in raw_lines:
         try:
-            # 提取线段坐标（不同算法返回格式可能不同，统一为[x1,y1,x2,y2]）
-            coords = line_info[0] if hasattr(line_info, "__len__") else line_info  # 处理数组或元组
-            x1, y1, x2, y2 = map(float, coords[:4])  # 转换为浮点数（保留精度）
-
-            # 计算线段基础参数
-            length = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)  # 线段长度（欧氏距离）
-            center_x = (x1 + x2) / 2  # 中心点x坐标
-            center_y = (y1 + y2) / 2  # 中心点y坐标
-
-            # 计算斜率和角度（角度范围0-180度，避免重复）
-            dx, dy = x2 - x1, y2 - y1  # 坐标差
-            slope = dy / dx if dx != 0 else float("inf")  # 斜率（dx=0时为无穷大，即垂直线）
-            angle = math.degrees(math.atan2(dy, dx)) % 180  # 角度（弧度转角度，取模180消除方向歧义）
-
-            # 存储为字典（结构化数据，方便后续处理）
-            segments_data.append(
-                {
-                    "line": [int(x1), int(y1), int(x2), int(y2)],  # 整数坐标的线段端点
-                    "length": length,  # 长度
-                    "center": (center_x, center_y),  # 中心点（浮点数精度）
-                    "slope": slope,  # 斜率
-                    "angle": angle,  # 角度（0-180度）
-                    "dx": dx,  # x坐标差（原始值）
-                    "dy": dy,  # y坐标差（原始值）
-                }
-            )
-        except:
-            continue  # 跳过格式错误的线段（异常处理）
-
-    # 筛选长度大于min_length的线段
-    diagonal_candidates = [s for s in segments_data if min_length <= s["length"] < 1000]  # 初始长度范围
-
-    if not diagonal_candidates:  # 若初始筛选无结果，放宽长度下限
-        diagonal_candidates = [s for s in segments_data if 50 <= s["length"] < 1000]  # 放宽到50px
-        if not diagonal_candidates:  # 若仍无结果，返回空
-            return []
-
-    # 按斜率合并（将同一方向、相近位置的线段合并为一条）
-    merged_records = []
-    directions = ["45°", "135°"]  # 目标方向：45度和135度（常见对角线方向）
-
-    for direction_name in directions:
-        # 定义方向对应的角度范围（45度对应30-60度，135度对应120-150度，覆盖误差）
-        angle_limits = (30, 60) if direction_name == "45°" else (120, 150)
-        # 筛选当前方向的候选线段（角度在范围内的线段）
-        group = [s for s in diagonal_candidates if angle_limits[0] <= s["angle"] <= angle_limits[1]]
-
-        if not group:  # 当前方向无线段，跳过
+            coords = line_info[0] if hasattr(line_info, "__len__") else line_info
+            x1, y1, x2, y2 = map(float, coords[:4])
+            length = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+            center_x = (x1 + x2) / 2
+            center_y = (y1 + y2) / 2
+            dx, dy = x2 - x1, y2 - y1
+            slope = dy / dx if dx != 0 else float("inf")
+            angle = math.degrees(math.atan2(dy, dx)) % 180
+            segments_data.append({
+                "line": [int(x1), int(y1), int(x2), int(y2)],
+                "length": length,
+                "center": (center_x, center_y),
+                "slope": slope,
+                "angle": angle,
+                "dx": dx,
+                "dy": dy,
+            })
+        except Exception:
             continue
+    return segments_data
 
-        # 按线段长度降序排序（优先保留长线段作为基准）
+
+def _filter_diagonal_candidates(segments_data: list, min_length: float) -> list:
+    """筛选长度 >= min_length 的对角线段，不足时放宽到 50px。"""
+    candidates = [s for s in segments_data if min_length <= s["length"] < 1000]
+    if not candidates:
+        candidates = [s for s in segments_data if 50 <= s["length"] < 1000]
+    return candidates
+
+
+def _merge_lines(diagonal_candidates: list, merge_distance: float, min_length: float) -> list:
+    """按斜率/角度合并相邻线段。返回合并后的线段记录列表。"""
+    import math
+    import numpy as np
+
+    merged_records = []
+    for direction_name, angle_limits in [("45°", (30, 60)), ("135°", (120, 150))]:
+        group = [s for s in diagonal_candidates if angle_limits[0] <= s["angle"] <= angle_limits[1]]
+        if not group:
+            continue
         group.sort(key=lambda x: x["length"], reverse=True)
-        used = set()  # 记录已合并的线段索引（避免重复合并）
+        used = set()
 
-        for i, base_info in enumerate(group):  # 遍历每条线段作为基准
-            if i in used:  # 已被合并过，跳过
+        for i, base_info in enumerate(group):
+            if i in used:
                 continue
+            cluster = [base_info]
+            base_slope = base_info["slope"]
+            base_center = base_info["center"]
 
-            cluster = [base_info]  # 当前线段的合并组（初始包含基准线段）
-            base_slope = base_info["slope"]  # 基准线段斜率
-            base_center = base_info["center"]  # 基准线段中心点
-
-            for j, other in enumerate(group):  # 遍历其他线段，寻找可合并的
-                if j <= i or j in used:  # 跳过自身或已合并的线段
+            for j, other in enumerate(group):
+                if j <= i or j in used:
                     continue
-
-                # 条件1：斜率差异检查（允许±8度误差，垂直线特殊处理）
                 slope_diff = abs(base_slope - other["slope"]) if base_slope != float("inf") else 0
                 if slope_diff > 8 and base_slope != float("inf"):
-                    continue  # 斜率差异过大，不合并
-
-                # 条件2：中心点距离检查（不超过merge_distance）
+                    continue
                 distance = math.sqrt(
-                    (base_center[0] - other["center"][0]) ** 2 + (base_center[1] - other["center"][1]) ** 2
+                    (base_center[0] - other["center"][0]) ** 2
+                    + (base_center[1] - other["center"][1]) ** 2
                 )
                 if distance <= merge_distance:
-                    cluster.append(other)  # 加入合并组
-                    used.add(j)  # 标记为已合并
+                    cluster.append(other)
+                    used.add(j)
 
-            # 合并组内线段，生成新的代表线段（基于所有点的最小二乘拟合）
-            # 提取组内所有线段的端点坐标（用于拟合）
-            all_x = [pt[0] for info in cluster for pt in [info["line"][:2], info["line"][2:]]]  # 所有点的x坐标
-            all_y = [pt[1] for info in cluster for pt in [info["line"][:2], info["line"][2:]]]  # 所有点的y坐标
+            all_x = [pt[0] for info in cluster for pt in [info["line"][:2], info["line"][2:]]]
+            all_y = [pt[1] for info in cluster for pt in [info["line"][:2], info["line"][2:]]]
 
-            if len(set(all_x)) > 1:  # 非垂直线（x坐标有变化），用线性拟合
-                slope, intercept = np.polyfit(all_x, all_y, 1)  # 最小二乘拟合直线（y = slope*x + intercept）
-                min_x, max_x = (
-                    int(min(all_x)),
-                    int(max(all_x)),
-                )  # 拟合直线的x范围（端点）
-                y_min = int(slope * min_x + intercept)  # 起点y坐标
-                y_max = int(slope * max_x + intercept)  # 终点y坐标
-                new_line = [min_x, y_min, max_x, y_max]  # 合并后的线段端点
-                new_center = (
-                    (min_x + max_x) / 2,
-                    (y_min + y_max) / 2,
-                )  # 合并后的中心点
-                new_slope = slope  # 合并后的斜率
-            else:  # 垂直线（x坐标不变），直接使用基准线段
+            if len(set(all_x)) > 1:
+                slope, intercept = np.polyfit(all_x, all_y, 1)
+                min_x, max_x = int(min(all_x)), int(max(all_x))
+                y_min = int(slope * min_x + intercept)
+                y_max = int(slope * max_x + intercept)
+                new_line = [min_x, y_min, max_x, y_max]
+                new_center = ((min_x + max_x) / 2, (y_min + y_max) / 2)
+                new_slope = slope
+            else:
                 new_line = cluster[0]["line"]
                 new_center = cluster[0]["center"]
                 new_slope = cluster[0]["slope"]
 
-            # 仅保留长度≥min_length的合并结果（避免合并后线段过短）
-            if math.sqrt((new_line[2] - new_line[0]) ** 2 + (new_line[3] - new_line[1]) ** 2) >= min_length:
-                merged_records.append(
-                    {
-                        "line": new_line,  # 合并后的线段端点
-                        "center": new_center,  # 合并后的中心点
-                        "slope": new_slope,  # 合并后的斜率
-                        "direction": direction_name,  # 方向（45°或135°）
-                        "length": math.sqrt((new_line[2] - new_line[0]) ** 2 + (new_line[3] - new_line[1]) ** 2),
-                        # 合并后的长度
-                        "merged_from": len(cluster),  # 合并的原始线段数量
-                    }
-                )
+            merged_length = math.sqrt(
+                (new_line[2] - new_line[0]) ** 2 + (new_line[3] - new_line[1]) ** 2
+            )
+            if merged_length >= min_length:
+                merged_records.append({
+                    "line": new_line,
+                    "center": new_center,
+                    "slope": new_slope,
+                    "direction": direction_name,
+                    "length": merged_length,
+                    "merged_from": len(cluster),
+                })
+    return merged_records
 
+
+def _build_segment_list(merged_records: list, bus_x: float) -> list:
+    """将合并后的线段记录转换为最终输出格式，过滤 bus 左侧杂点。"""
     segment_list = []
-
-    # 遍历每个字典并处理
     for segment in merged_records:
-        # 提取class_name
-        class_name = segment["direction"]
-        if class_name == "45°":
-            class_name = "DOWN"
-        elif class_name == "135°":
-            class_name = "UP"
+        class_name = "DOWN" if segment["direction"] == "45°" else "UP"
         center = segment["center"]
         if center[0] < bus_x + 50 * (cfg.set_win_size / 1440):
             continue
-
-        # 组成子列表并添加到节点总列表
         segment_list.append([class_name, center])
 
     # 返回结构化数据
