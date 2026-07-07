@@ -1,10 +1,12 @@
-"""镜牢领域层 — 纯净业务逻辑，零外部依赖。"""
+"""镜牢领域层 — 纯净业务逻辑，零外部依赖。
 
-from mirror.domain.interfaces import AutomationPort, ConfigPort, RunConfig
-from mirror.domain.state_machine import MirrorPhase, MirrorStateMachine
+Strangled — source of truth moved to module4_decision_layer/core/.
+"""
 
-# 向后兼容：旧 import 路径仍然可用
-from mirror.domain.constants import (
+# Strangled — source of truth moved to module4_decision_layer
+from module4_decision_layer.core.ports import AutomationPort, ConfigPort, RunConfig
+from module4_decision_layer.core.state import MirrorPhase, MirrorStateMachine
+from module4_decision_layer.core.constants import (
     MIRROR_MAIN_LOOP,
     DEFAULT_LOOP,
     SHORT_LOOP,

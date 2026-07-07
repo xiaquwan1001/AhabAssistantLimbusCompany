@@ -1,0 +1,189 @@
+"""镜牢领域层 常量定义 — migrated from mirror/domain/constants.py.
+
+集中管理魔法数字和缩放计算。
+领域纯函数：不依赖 module.config.cfg，缩放因子由调用方注入。
+"""
+
+from __future__ import annotations
+
+__all__ = [
+    "BASE_RESOLUTION_WIDTH",
+    "BASE_RESOLUTION_WIDTH_ALT",
+    "get_scale",
+    "SHOP_GIFT_COLUMN_STEP",
+    "SHOP_GIFT_ROW_STEP",
+    "SHOP_GIFT_COLUMNS",
+    "SHOP_FIRST_GRID_OFFSET_X",
+    "SHOP_REFRESH_STEP",
+    "SHOP_COMMODITY_PER_LINE",
+    "ROAD_SETTING_OFFSET_X",
+    "STARLIGHT_ROW_SPACING",
+    "MIRROR_MAIN_LOOP",
+    "DEFAULT_LOOP",
+    "SHORT_LOOP",
+    "MIN_LOOP",
+    "BUY_RETRY_CHANCES",
+    "BUY_AGGRESSIVE_RETRY",
+    "FUSE_LOOP_TIMES",
+    "FUSE_STARLIGHT_CHANCES",
+    "SCREENSHOT_RETRIES",
+    "EVENT_CLICK_TIMES",
+    "BLANK_CLICK_TIMES",
+    "KEYWORD_CONFIRM_RETRIES",
+    "SKILL_REPLACEMENT_MAX",
+    "EVENT_HANDLING_THRESHOLD",
+    "WAIT",
+    "OCR_DEFAULT_THRESHOLD",
+    "HIGH_THRESHOLD",
+    "LOW_THRESHOLD",
+    "FUSE_THRESHOLD",
+    "GENERAL_THRESHOLD",
+    "ROAD_MATCH_THRESHOLD",
+    "DEFAULT_MIN_PATH_LENGTH",
+    "MID_LINE_THRESHOLD",
+    "DEFAULT_TEAM_COUNT",
+    "SINNER_LIVE_THRESHOLD",
+    "BATTLE_FAIL_RETRY_THRESHOLD",
+    "COORDINATE_GROUP_THRESHOLD",
+    "COORDINATE_PROTECT_THRESHOLD",
+    "SKILL3_MIN_PIXELS",
+    "SKILL3_THRESHOLD",
+    "SKILL3_MERGE_DISTANCE",
+    "SKILL3_X_HALF",
+    "SKILL3_Y_HALF",
+    "SKILL3_SIMILAR_PIXELS",
+]
+
+
+# ── 缩放相关 ──
+
+# 基准分辨率宽度（参考设计值）
+BASE_RESOLUTION_WIDTH = 1440
+
+# 有些模块（如 select_theme_pack, search_road）使用 1080 基準
+BASE_RESOLUTION_WIDTH_ALT = 1080
+
+
+def get_scale(win_size: int, base: int = BASE_RESOLUTION_WIDTH) -> float:
+    """返回当前窗口缩放比例因子（相对于基准分辨率）。
+
+    调用示例:
+        scale = get_scale(cfg.set_win_size)       # cfg.set_win_size / 1440
+        scale = get_scale(cfg.set_win_size, 1080)  # cfg.set_win_size / 1080
+    """
+    return win_size / base
+
+
+# ── 各模块通用坐标偏移（scale 相关，供替换 190 * scale 等） ──
+
+# 商店饰品网格：两列，x 间距
+SHOP_GIFT_COLUMN_STEP = 190
+SHOP_GIFT_ROW_STEP = 190
+SHOP_GIFT_COLUMNS = 5
+
+# 商店右侧偏移（从 shop_coins 位置计算）
+SHOP_FIRST_GRID_OFFSET_X = 150
+SHOP_REFRESH_STEP = 300
+SHOP_COMMODITY_PER_LINE = 4
+
+# 寻路相关偏移
+ROAD_SETTING_OFFSET_X = 200
+
+# 星光选择偏移
+STARLIGHT_ROW_SPACING = 480
+
+# ── 循环/重试次数常量 ──
+
+# 镜牢主循环
+MIRROR_MAIN_LOOP = 250
+
+# 通用循环
+DEFAULT_LOOP = 30
+SHORT_LOOP = 15
+MIN_LOOP = 10
+
+# 购买重试
+BUY_RETRY_CHANCES = 10
+BUY_AGGRESSIVE_RETRY = 5
+
+# 合成循环
+FUSE_LOOP_TIMES = 15
+FUSE_STARLIGHT_CHANCES = 5
+
+# 识别计数
+SCREENSHOT_RETRIES = 5
+
+# 按钮点击次数
+EVENT_CLICK_TIMES = 6
+BLANK_CLICK_TIMES = 3
+
+# 关键词刷新确认重试
+KEYWORD_CONFIRM_RETRIES = 3
+
+# 技能替换次数上限
+SKILL_REPLACEMENT_MAX = 3
+
+# 事件次数阈值
+EVENT_HANDLING_THRESHOLD = 5
+
+# ── 等待时间（秒）──
+# 使用命名常量替代散落的 sleep() 调用
+
+WAIT = {
+    "SHORT": 0.5,
+    "MEDIUM": 1.0,
+    "LONG": 2.0,
+    "VERY_LONG": 3.0,
+    "EXTRA_LONG": 4.0,
+    "POST_PURCHASE": 1.0,
+    "POST_REFRESH": 3.0,
+    "POST_FUSE": 2.0,
+    "CLICK_INTERVAL": 0.5,
+    "SCREENSHOT_RETRY": 0.75,
+    "ROAD_NAVIGATE": 1.25,
+}
+
+# ── OCR / 识别阈值 ──
+
+OCR_DEFAULT_THRESHOLD = 0.85
+HIGH_THRESHOLD = 0.9
+LOW_THRESHOLD = 0.78
+FUSE_THRESHOLD = 0.97
+GENERAL_THRESHOLD = 0.75
+
+# 寻路 road.png 匹配阈值
+ROAD_MATCH_THRESHOLD = 0.65
+
+# ── 寻路常量 ──
+
+# 默认最短路径长度（像素）
+DEFAULT_MIN_PATH_LENGTH = 50
+
+# 中线阈值
+MID_LINE_THRESHOLD = 30
+
+# ── 窗口/游戏常量 ──
+
+# 队伍默认数量
+DEFAULT_TEAM_COUNT = 3
+
+# 罪人存活数量阈值
+SINNER_LIVE_THRESHOLD = 10
+
+# 战斗失败重试阈值
+BATTLE_FAIL_RETRY_THRESHOLD = 5
+
+# ── 坐标处理常量 ──
+
+# 坐标分组阈值
+COORDINATE_GROUP_THRESHOLD = 40
+COORDINATE_PROTECT_THRESHOLD = 50
+
+# ── 战斗识别常量 ──
+
+SKILL3_MIN_PIXELS = 10
+SKILL3_THRESHOLD = 40
+SKILL3_MERGE_DISTANCE = 67
+SKILL3_X_HALF = 33
+SKILL3_Y_HALF = 13
+SKILL3_SIMILAR_PIXELS = 26
