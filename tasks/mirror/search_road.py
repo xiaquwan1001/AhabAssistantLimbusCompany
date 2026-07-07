@@ -109,8 +109,13 @@ class MirrorMap:
 
 
 
-# TODO(strangler): inject via parameter
-def get_node_weight(x, y):
+def get_node_weight(x, y, automation=None, config=None):
+    if automation is None:
+        from module.automation import auto as _auto
+        automation = _auto
+    if config is None:
+        from module.config import cfg as _cfg
+        config = _cfg
     scale = get_scale()
     road_node_bbox = (
         x - 125 * scale,
@@ -118,57 +123,62 @@ def get_node_weight(x, y):
         x + 125 * scale,
         y + 125 * scale,
     )
-    if auto.find_feature_element("mirror/road_in_mir/shop.png", road_node_bbox, 50):
+    if automation.find_feature_element("mirror/road_in_mir/shop.png", road_node_bbox, 50):
         return 3
-    elif auto.find_feature_element("mirror/road_in_mir/event.png", road_node_bbox):
+    elif automation.find_feature_element("mirror/road_in_mir/event.png", road_node_bbox):
         return 3
-    elif auto.find_feature_element(
+    elif automation.find_feature_element(
         "mirror/road_in_mir/battle.png",
         road_node_bbox,
     ):
         return 2
-    elif auto.find_feature_element("mirror/road_in_mir/hard_battle.png", road_node_bbox):
+    elif automation.find_feature_element("mirror/road_in_mir/hard_battle.png", road_node_bbox):
         return 1
-    elif auto.find_feature_element("mirror/road_in_mir/hard_battle2.png", road_node_bbox):
+    elif automation.find_feature_element("mirror/road_in_mir/hard_battle2.png", road_node_bbox):
         return 0
     return -5
 
 
 # 在默认缩放情况下，进行镜牢寻路
-# TODO(strangler): inject via parameter
-def search_road_default_distance():
+def search_road_default_distance(automation=None, config=None):
+    if automation is None:
+        from module.automation import auto as _auto
+        automation = _auto
+    if config is None:
+        from module.config import cfg as _cfg
+        config = _cfg
     """默认缩放距离下的镜牢寻路。先检测权重3节点，再遍历全部节点。"""
     start_time = time.time()
     scale = get_scale()
     three_roads = _make_three_roads(scale)
 
-    auto.mouse_to_blank()
-    while auto.take_screenshot() is None:
+    automation.mouse_to_blank()
+    while automation.take_screenshot() is None:
         continue
     if retry() is False:
         return False
 
     # 优先选择高权重节点
-    if _try_weighted_node(three_roads[:2], scale):
+    if _try_weighted_node(three_roads[:2], scale, automation=automation, config=config):
         return True
 
-    bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
+    bus_position = automation.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
     if bus_position is None:
         return False
 
     # 将 bus 拖到垂直中心
-    bus_position = _drag_bus_to_center(bus_position, scale, start_time)
+    bus_position = _drag_bus_to_center(bus_position, scale, start_time, automation=automation, config=config)
     if bus_position is None:
         return False
 
     # 遍历所有节点，选权重最大的
     node_list = _build_node_list(bus_position, three_roads)
-    all_node_weight = _compute_node_weights(bus_position, three_roads, node_list)
+    all_node_weight = _compute_node_weights(bus_position, three_roads, node_list, automation=automation, config=config)
     for road in sorted(all_node_weight, key=all_node_weight.get, reverse=True):
-        if 0 < road[0] < cfg.set_win_size * 16 / 9 and 0 < road[1] < cfg.set_win_size:
-            auto.mouse_click(road[0], road[1])
+        if 0 < road[0] < config.set_win_size * 16 / 9 and 0 < road[1] < config.set_win_size:
+            automation.mouse_click(road[0], road[1])
             sleep(0.75)
-            if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
+            if automation.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
                 return True
     return False
 
@@ -182,34 +192,44 @@ def _make_three_roads(scale: float) -> list:
     ]
 
 
-# TODO(strangler): inject via parameter
-def _try_weighted_node(roads: list, scale: float) -> bool:
+def _try_weighted_node(roads: list, scale: float, automation=None, config=None):
+    if automation is None:
+        from module.automation import auto as _auto
+        automation = _auto
+    if config is None:
+        from module.config import cfg as _cfg
+        config = _cfg
     """检测 roads 中是否有权重3的节点，直接选择进入。"""
-    if not (bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)):
+    if not (bus_position := automation.find_element("mirror/mybus_default_distance.png", take_screenshot=True)):
         return False
     node_weight = {}
     for road in roads:
-        weight = get_node_weight(bus_position[0] + road[0], bus_position[1] + road[1])
+        weight = get_node_weight(bus_position[0] + road[0], bus_position[1] + road[1], automation=automation, config=config)
         node_weight[(bus_position[0] + road[0], bus_position[1] + road[1])] = weight
     if max(node_weight.values()) == 3:
         road_list = sorted(node_weight, key=node_weight.get, reverse=True)
         road = road_list[0]
-        if 0 < road[0] < cfg.set_win_size * 16 / 9 and 0 < road[1] < cfg.set_win_size:
-            auto.mouse_click(road[0], road[1])
+        if 0 < road[0] < config.set_win_size * 16 / 9 and 0 < road[1] < config.set_win_size:
+            automation.mouse_click(road[0], road[1])
             sleep(0.75)
-            if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
+            if automation.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
                 return True
     return False
 
 
-# TODO(strangler): inject via parameter
-def _drag_bus_to_center(bus_position, scale: float, start_time: float):
+def _drag_bus_to_center(bus_position, scale: float, start_time: float, automation=None, config=None):
+    if automation is None:
+        from module.automation import auto as _auto
+        automation = _auto
+    if config is None:
+        from module.config import cfg as _cfg
+        config = _cfg
     """将 bus 拖动到垂直中心区域 (600-700 y)。"""
     from tasks.base.retry import check_times
 
     while True:
-        if auto.get_restore_time() is not None:
-            start_time = max(start_time, auto.get_restore_time())
+        if automation.get_restore_time() is not None:
+            start_time = max(start_time, automation.get_restore_time())
         if check_times(start_time, logs=False):
             from tasks.base.back_init_menu import back_init_menu
             back_init_menu()
@@ -217,10 +237,10 @@ def _drag_bus_to_center(bus_position, scale: float, start_time: float):
         if 600 * scale < bus_position[1] < 700 * scale:
             break
         dy = 650 * scale - bus_position[1]
-        auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=0, dy=dy)
+        automation.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=0, dy=dy)
         sleep(1)
-        auto.mouse_to_blank()
-        bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
+        automation.mouse_to_blank()
+        bus_position = automation.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
         if bus_position is None:
             break
     return bus_position
@@ -234,25 +254,36 @@ def _build_node_list(bus_position, three_roads: list) -> list:
     return node_list
 
 
-def _compute_node_weights(bus_position, three_roads: list, node_list: list) -> dict:
+def _compute_node_weights(bus_position, three_roads: list, node_list: list, automation=None, config=None):
+    if automation is None:
+        from module.automation import auto as _auto
+        automation = _auto
+    if config is None:
+        from module.config import cfg as _cfg
+        config = _cfg
     """计算中下上路所有节点的权重。返回 {坐标: 权重}。"""
-    all_node_weight = dict(zip(node_list, [get_node_weight(x, y) for x, y in node_list]))
+    all_node_weight = dict(zip(node_list, [get_node_weight(x, y, automation=automation, config=config) for x, y in node_list]))
     for road in three_roads[2:]:
         all_node_weight[(bus_position[0] + road[0], bus_position[1] + road[1])] = get_node_weight(
-            bus_position[0] + road[0], bus_position[1] + road[1]
+            bus_position[0] + road[0], bus_position[1] + road[1], automation=automation, config=config
         )
     all_node_weight[bus_position[0], bus_position[1]] = -6
     return all_node_weight
 
 
 # 如果默认缩放无法镜牢寻路，进行滚轮缩放后继续寻路
-# TODO(strangler): inject via parameter
-def search_road_farthest_distance():
+def search_road_farthest_distance(automation=None, config=None):
+    if automation is None:
+        from module.automation import auto as _auto
+        automation = _auto
+    if config is None:
+        from module.config import cfg as _cfg
+        config = _cfg
     scale = get_scale()
-    auto.mouse_click_blank()
-    if not auto.mouse_scroll():
+    automation.mouse_click_blank()
+    if not automation.mouse_scroll():
         raise InputAttributeError("后台输入不支持滚轮操作!")
-    while auto.take_screenshot() is None:
+    while automation.take_screenshot() is None:
         continue
     if retry() is False:
         return False
@@ -261,40 +292,45 @@ def search_road_farthest_distance():
         [250 * scale, 0],
         [250 * scale, 225 * scale],
     ]
-    if bus_position := auto.find_element("mirror/mybus_maximum_distance.png"):
+    if bus_position := automation.find_element("mirror/mybus_maximum_distance.png"):
         for road in three_roads:
             road[0] += bus_position[0]
             road[1] += bus_position[1]
-            if 0 < road[0] < cfg.set_win_size * 16 / 9 and 0 < road[1] < cfg.set_win_size:
-                auto.mouse_click(road[0], road[1])
+            if 0 < road[0] < config.set_win_size * 16 / 9 and 0 < road[1] < config.set_win_size:
+                automation.mouse_click(road[0], road[1])
                 sleep(0.75)
-                if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
+                if automation.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
                     return True
-        auto.mouse_click(bus_position[0], bus_position[1])
-        if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
+        automation.mouse_click(bus_position[0], bus_position[1])
+        if automation.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
             return True
     return False
 
 
-# TODO(strangler): inject via parameter
-def search_road_from_road_map(hard_mode=False):
+def search_road_from_road_map(hard_mode=False, automation=None, config=None):
+    if automation is None:
+        from module.automation import auto as _auto
+        automation = _auto
+    if config is None:
+        from module.config import cfg as _cfg
+        config = _cfg
     """使用路网地图进行寻路。返回 (directions, road_class_list) 或 (False, [])。"""
     start_time = time.time()
     scale = get_scale()
     road = []
     bus = None
 
-    if auto.click_element("mirror/mybus_default_distance.png", take_screenshot=True):
+    if automation.click_element("mirror/mybus_default_distance.png", take_screenshot=True):
         sleep(0.75)
-        if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
+        if automation.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
             return True, True
 
-    bus = _align_bus_to_target(start_time, scale)
+    bus = _align_bus_to_target(start_time, scale, automation=automation, config=config)
     if bus is None:
         return False, []
 
-    bus_pos = auto.find_element("mirror/mybus_default_distance.png")
-    all_nodes = identify_nodes(bus[0])
+    bus_pos = automation.find_element("mirror/mybus_default_distance.png")
+    all_nodes = identify_nodes(bus[0], automation=automation, config=config)
     if all_nodes is None:
         return [], []
 
@@ -310,38 +346,43 @@ def search_road_from_road_map(hard_mode=False):
             reset_position = "Top"
             initial_bus_pos = Position.TOP
     elif len(y_area) == 1:
-        all_road = divide_the_area_by_x(identify_road(bus[0]))
+        all_road = divide_the_area_by_x(identify_road(bus[0], automation=automation, config=config))
         if len(all_road) == 0:
             road = ["M"]
         else:
             road = ["D"] if all_road[0][0][0] == "DOWN" else ["U"]
 
     if reset_position:
-        bus = _reposition_bus_by_y(start_time, scale, reset_position)
+        bus = _reposition_bus_by_y(start_time, scale, reset_position, automation=automation, config=config)
         if bus is None:
             return False, []
-        all_nodes = identify_nodes(bus[0])
+        all_nodes = identify_nodes(bus[0], automation=automation, config=config)
         if all_nodes is None:
             return [], []
 
     if road:
         return road, ["unknown"]
 
-    return _build_and_search_route(all_nodes, bus, initial_bus_pos, hard_mode)
+    return _build_and_search_route(all_nodes, bus, initial_bus_pos, hard_mode, automation=automation, config=config)
 
 
-# TODO(strangler): inject via parameter
-def _align_bus_to_target(start_time: float, scale: float):
+def _align_bus_to_target(start_time: float, scale: float, automation=None, config=None):
+    if automation is None:
+        from module.automation import auto as _auto
+        automation = _auto
+    if config is None:
+        from module.config import cfg as _cfg
+        config = _cfg
     """将 bus 拖动到目标位置（675-700 y, <150 x）。返回 bus 坐标或 None。"""
     from tasks.base.retry import check_times
 
-    bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
+    bus_position = automation.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
     if bus_position is None:
         return None
     change_times = 5
     while True:
-        if auto.get_restore_time() is not None:
-            start_time = max(start_time, auto.get_restore_time())
+        if automation.get_restore_time() is not None:
+            start_time = max(start_time, automation.get_restore_time())
         if check_times(start_time, logs=False):
             from tasks.base.back_init_menu import back_init_menu
             back_init_menu()
@@ -350,10 +391,10 @@ def _align_bus_to_target(start_time: float, scale: float):
             return bus_position
         dx = 80 * scale - bus_position[0]
         dy = 690 * scale - bus_position[1]
-        auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
+        automation.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
         sleep(0.5)
-        auto.mouse_to_blank()
-        bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
+        automation.mouse_to_blank()
+        bus_position = automation.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
         if bus_position is None:
             return None
         change_times -= 1
@@ -361,19 +402,24 @@ def _align_bus_to_target(start_time: float, scale: float):
             return bus_position
 
 
-# TODO(strangler): inject via parameter
-def _reposition_bus_by_y(start_time: float, scale: float, reset_position: str):
+def _reposition_bus_by_y(start_time: float, scale: float, reset_position: str, automation=None, config=None):
+    if automation is None:
+        from module.automation import auto as _auto
+        automation = _auto
+    if config is None:
+        from module.config import cfg as _cfg
+        config = _cfg
     """根据 y 区域重定位 bus。返回 bus 坐标或 None。"""
     from tasks.base.retry import check_times
 
     set_y_position = 1100 * scale if reset_position == "Bottom" else 250 * scale
-    bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
+    bus_position = automation.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
     if bus_position is None:
         return None
 
     while True:
-        if auto.get_restore_time() is not None:
-            start_time = max(start_time, auto.get_restore_time())
+        if automation.get_restore_time() is not None:
+            start_time = max(start_time, automation.get_restore_time())
         if check_times(start_time, logs=False):
             from tasks.base.back_init_menu import back_init_menu
             back_init_menu()
@@ -385,20 +431,25 @@ def _reposition_bus_by_y(start_time: float, scale: float, reset_position: str):
             return bus_position
         dx = 550 * scale - bus_position[0]
         dy = set_y_position - bus_position[1]
-        auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
+        automation.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
         sleep(0.5)
-        auto.mouse_to_blank()
-        bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
+        automation.mouse_to_blank()
+        bus_position = automation.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
         if bus_position is None:
             return None
 
 
-# TODO(strangler): inject via parameter
-def _build_and_search_route(all_nodes, bus, initial_bus_pos, hard_mode):
+def _build_and_search_route(all_nodes, bus, initial_bus_pos, hard_mode, automation=None, config=None):
+    if automation is None:
+        from module.automation import auto as _auto
+        automation = _auto
+    if config is None:
+        from module.config import cfg as _cfg
+        config = _cfg
     """构建路由图并搜索最优路径。返回 (directions, road_class_list)。"""
-    bus_pos = auto.find_element("mirror/mybus_default_distance.png")
+    bus_pos = automation.find_element("mirror/mybus_default_distance.png")
     all_nodes_layer = divide_the_area_by_x(all_nodes)
-    all_road = divide_the_area_by_x(identify_road(bus[0]))
+    all_road = divide_the_area_by_x(identify_road(bus[0], automation=automation, config=config))
 
     route_graph = RouteGraph(all_nodes_layer, initial_bus_pos=initial_bus_pos, hard_mode=hard_mode)
     route_graph.init_road(all_road, bus[0], bus_pos[1])
@@ -419,9 +470,15 @@ def _build_and_search_route(all_nodes, bus, initial_bus_pos, hard_mode):
 # shop 是商店，small_boss_battle 是异想体遭遇战
 
 
-def identify_nodes(bus_x):
+def identify_nodes(bus_x, automation=None, config=None):
+    if automation is None:
+        from module.automation import auto as _auto
+        automation = _auto
+    if config is None:
+        from module.config import cfg as _cfg
+        config = _cfg
     """使用 ONNX YOLO 模型检测镜牢节点。返回 [class_name, (x, y)] 列表，无结果返回 None。"""
-    detections = _run_yolo_inference()
+    detections = _run_yolo_inference(automation=automation, config=config)
     if detections is None:
         return None
     return _yolo_detections_to_nodes(detections, bus_x)
@@ -445,15 +502,20 @@ def _get_onnx_session():
     return _ONNX_SESSION
 
 
-# TODO(strangler): inject via parameter
-def _run_yolo_inference() -> list | None:
+def _run_yolo_inference(automation=None, config=None) -> list | None:
+    if automation is None:
+        from module.automation import auto as _auto
+        automation = _auto
+    if config is None:
+        from module.config import cfg as _cfg
+        config = _cfg
     """截图 → YOLO 推理 → NMS 后处理。返回检测结果列表，无结果返回 None。"""
     import numpy as np
 
     session = _get_onnx_session()
 
-    auto.take_screenshot(gray=False)
-    original_image: np.ndarray = np.array(auto.screenshot)
+    automation.take_screenshot(gray=False)
+    original_image: np.ndarray = np.array(automation.screenshot)
     height, width = original_image.shape[:2]
     length = max(height, width)
     image = np.zeros((length, length, 3), np.uint8)
@@ -519,8 +581,13 @@ def _yolo_detections_to_nodes(detections: list, bus_x: float) -> list:
     return node_list
 
 
-# TODO(strangler): inject via parameter
-def identify_road(bus_x, min_length=160, merge_distance=230):
+def identify_road(bus_x, min_length=160, merge_distance=230, automation=None, config=None):
+    if automation is None:
+        from module.automation import auto as _auto
+        automation = _auto
+    if config is None:
+        from module.config import cfg as _cfg
+        config = _cfg
     """
     增强版LSD对角线检测，完整输出模块，显示方向标记和中心点
     """
@@ -530,8 +597,8 @@ def identify_road(bus_x, min_length=160, merge_distance=230):
 
     min_length = min_length * get_scale()
 
-    auto.take_screenshot()
-    screenshot = np.array(auto.screenshot)
+    automation.take_screenshot()
+    screenshot = np.array(automation.screenshot)
     raw_lines = _lsd_detect_lines(screenshot)
     if raw_lines is None or len(raw_lines) == 0:
         log.warning("⚠️ 未检测到任何线段")

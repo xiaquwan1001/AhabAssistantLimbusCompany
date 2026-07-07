@@ -36,14 +36,20 @@ from tasks.mirror.constants import (
     BUY_AGGRESSIVE_RETRY,
 )
 
-def sort_points(points, complete=0, threshold=40):
+def sort_points(points, complete=0, threshold=40, auto=None, config=None):
     """按 X→Y 排序坐标点，可裁剪末尾。"""
+    if auto is None:
+        from module.automation import auto as _auto
+        auto = _auto
     points.sort(key=lambda p: p[0])
     points.sort(key=lambda p: p[1] // threshold)
     return points[:-complete] if complete > 0 else points
 
-def re_sort_points(points):
+def re_sort_points(points, auto=None, config=None):
     """购买后重排剩余商品坐标（左移/上移）。"""
+    if auto is None:
+        from module.automation import auto as _auto
+        auto = _auto
     commodity_every_line = 4
     coins_point = auto.find_element("mirror/shop/shop_coins_assets.png", take_screenshot=True)
     scale = get_scale()
@@ -262,7 +268,7 @@ class Shop:
             threshold=0.85,
             take_screenshot=True,
         )
-        system_gift = sort_points(system_gift, complete_count)
+        system_gift = sort_points(system_gift, complete_count, auto=self.auto, config=self.config)
         while system_gift:
             gift = system_gift.pop(0)
             self.auto.mouse_action_with_pos((gift[0], gift[1]), offset=True)
@@ -277,7 +283,7 @@ class Shop:
                 sleep(WAIT["MEDIUM"])
                 self.auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True)
                 complete_count += 1
-                system_gift = re_sort_points(system_gift)
+                system_gift = re_sort_points(system_gift, auto=self.auto, config=self.config)
                 self.auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
                 continue
             if self.auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True):
@@ -297,7 +303,7 @@ class Shop:
             find_type="image_with_multiple_targets",
             threshold=0.85,
         )
-        system_gift = sort_points(system_gift, complete_count)
+        system_gift = sort_points(system_gift, complete_count, auto=self.auto, config=self.config)
         while system_gift:
             gift = system_gift.pop(0)
             self.auto.mouse_action_with_pos((gift[0], gift[1]), offset=True)
@@ -312,7 +318,7 @@ class Shop:
                 sleep(WAIT["MEDIUM"])
                 self.auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True)
                 complete_count += 1
-                system_gift = re_sort_points(system_gift)
+                system_gift = re_sort_points(system_gift, auto=self.auto, config=self.config)
                 self.auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
                 continue
             if self.auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True):
