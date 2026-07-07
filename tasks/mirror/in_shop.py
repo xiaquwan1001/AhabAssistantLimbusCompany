@@ -2,8 +2,8 @@ from time import sleep
 
 from PIL import Image
 
-from module.automation import auto
-from module.config import TeamSetting, cfg
+from module.automation import auto  # used by re_sort_points()
+from module.config import TeamSetting
 from module.logger import log
 from module.ocr import ocr
 from tasks import all_sinners_name, all_sinners_name_zh, all_systems, system_cn_zh
@@ -36,13 +36,11 @@ from tasks.mirror.constants import (
     BUY_AGGRESSIVE_RETRY,
 )
 
-
 def sort_points(points, complete=0, threshold=40):
     """按 X→Y 排序坐标点，可裁剪末尾。"""
     points.sort(key=lambda p: p[0])
     points.sort(key=lambda p: p[1] // threshold)
     return points[:-complete] if complete > 0 else points
-
 
 def re_sort_points(points):
     """购买后重排剩余商品坐标（左移/上移）。"""
@@ -69,10 +67,16 @@ def re_sort_points(points):
         new_points.append([new_x, new_y])
     return new_points
 
-
 class Shop:
-    def __init__(self, team_setting: TeamSetting):
-        self.system = all_systems[team_setting.team_system]  # 队伍体系
+    def __init__(self, team_setting: TeamSetting, automation=None, config=None):
+        if automation is None:
+            from mirror.infra.legacy_adapters import get_automation
+            automation = get_automation()
+        if config is None:
+            from mirror.infra.legacy_adapters import get_config
+            config = get_config()
+        self.auto = automation
+        self.config = config
         self.sinner_team = team_setting.sinner_order  # 选择的罪人序列
         # 获取舍弃的饰品体系列表
         self.shop_sell_list = []
@@ -129,27 +133,27 @@ class Shop:
 
     def ego_gift_to_power_up(self):
         loop_count = 30
-        auto.model = "clam"
+        self.auto.model = "clam"
         while True:
             # 自动截图
-            if auto.take_screenshot() is None:
+            if self.auto.take_screenshot() is None:
                 continue
-            auto.mouse_to_blank()
-            if auto.click_element("mirror/shop/power_up_assets.png"):
-                auto.mouse_to_blank()
+            self.auto.mouse_to_blank()
+            if self.auto.click_element("mirror/shop/power_up_assets.png"):
+                self.auto.mouse_to_blank()
                 sleep(0.5)
-                if auto.click_element("mirror/shop/power_up_confirm_assets.png", take_screenshot=True) is False:
+                if self.auto.click_element("mirror/shop/power_up_confirm_assets.png", take_screenshot=True) is False:
                     return True
                 sleep(3)
                 if retry() is False:
                     raise self.RestartGame()
-            if auto.find_element("mirror/shop/power_up_confirm_assets.png"):
+            if self.auto.find_element("mirror/shop/power_up_confirm_assets.png"):
                 return False
             loop_count -= 1
             if loop_count < 20:
-                auto.model = "normal"
+                self.auto.model = "normal"
             if loop_count < 10:
-                auto.model = "aggressive"
+                self.auto.model = "aggressive"
             if loop_count < 0:
                 log.error("无法升级ego饰品")
                 break
@@ -161,7 +165,7 @@ class Shop:
         complete_count = 0
         while True:
             # 自动截图
-            if auto.take_screenshot() is None:
+            if self.auto.take_screenshot() is None:
                 continue
             complete_count = self._buy_must_purchase(complete_count)
             if self.fuse_aggressive_switch:
@@ -193,45 +197,45 @@ class Shop:
             return complete_count
         log.debug("开始购买必买项")
         for commodity in must_purchase:
-            if not auto.click_element(commodity, threshold=0.85):
+            if not self.auto.click_element(commodity, threshold=0.85):
                 continue
             buy_chance = BUY_RETRY_CHANCES
-            while auto.click_element("mirror/shop/purchase_assets.png") is False:
-                while auto.take_screenshot() is None:
+            while self.auto.click_element("mirror/shop/purchase_assets.png") is False:
+                while self.auto.take_screenshot() is None:
                     continue
                 if retry() is False:
                     raise self.RestartGame()
-                if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"):
+                if self.auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"):
                     complete_count += 1
                     break
                 buy_chance -= 1
                 if buy_chance <= BUY_AGGRESSIVE_RETRY:
-                    auto.click_element(commodity, threshold=0.85)
+                    self.auto.click_element(commodity, threshold=0.85)
                 if buy_chance <= 0:
-                    auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
+                    self.auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
                     break
             sleep(WAIT["MEDIUM"])
-            auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True)
-            while auto.take_screenshot() is None:
+            self.auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True)
+            while self.auto.take_screenshot() is None:
                 continue
         return complete_count
 
     def _buy_single_enhancement(self, asset: str, complete_count: int) -> int:
         """购买单个强化素材。返回更新后的 complete_count。"""
-        if not auto.click_element(asset, threshold=0.82):
+        if not self.auto.click_element(asset, threshold=0.82):
             return complete_count
         sleep(WAIT["MEDIUM"])
-        while auto.take_screenshot() is None:
+        while self.auto.take_screenshot() is None:
             continue
-        if auto.click_element("mirror/shop/purchase_assets.png"):
+        if self.auto.click_element("mirror/shop/purchase_assets.png"):
             sleep(WAIT["MEDIUM"])
-            while auto.take_screenshot() is None:
+            while self.auto.take_screenshot() is None:
                 continue
             if retry() is False:
                 raise self.RestartGame()
-            auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png")
+            self.auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png")
             return complete_count + 1
-        auto.mouse_click_blank()
+        self.auto.mouse_click_blank()
         return complete_count
 
     def _buy_enhancement_materials(self, complete_count: int) -> int:
@@ -252,7 +256,7 @@ class Shop:
         ):
             return complete_count
         log.debug("开始购买本体系饰品")
-        system_gift = auto.find_element(
+        system_gift = self.auto.find_element(
             f"mirror/shop/enhance_gifts/shop_{self.system}.png",
             find_type="image_with_multiple_targets",
             threshold=0.85,
@@ -261,24 +265,24 @@ class Shop:
         system_gift = sort_points(system_gift, complete_count)
         while system_gift:
             gift = system_gift.pop(0)
-            auto.mouse_action_with_pos((gift[0], gift[1]), offset=True)
+            self.auto.mouse_action_with_pos((gift[0], gift[1]), offset=True)
             sleep(WAIT["MEDIUM"])
-            while auto.take_screenshot() is None:
+            while self.auto.take_screenshot() is None:
                 continue
-            if self.system == "bleed" and not cfg.not_skip_whitegossypium:
-                if auto.find_language_text("白棉花", ["white", "gossypium"], all_text=True):
-                    auto.mouse_click_blank(times=2)
+            if self.system == "bleed" and not self.config.not_skip_whitegossypium:
+                if self.auto.find_language_text("白棉花", ["white", "gossypium"], all_text=True):
+                    self.auto.mouse_click_blank(times=2)
                 sleep(WAIT["MEDIUM"])
-            if auto.click_element("mirror/shop/purchase_assets.png", take_screenshot=True):
+            if self.auto.click_element("mirror/shop/purchase_assets.png", take_screenshot=True):
                 sleep(WAIT["MEDIUM"])
-                auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True)
+                self.auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True)
                 complete_count += 1
                 system_gift = re_sort_points(system_gift)
-                auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
+                self.auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
                 continue
-            if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True):
+            if self.auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True):
                 sleep(WAIT["SHORT"])
-            auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
+            self.auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
             sleep(WAIT["MEDIUM"])
         return complete_count
 
@@ -288,7 +292,7 @@ class Shop:
             return complete_count
         if not (self.second_system_setting == 1 or (self.second_system_setting == 0 and self.fuse_IV is True)):
             return complete_count
-        system_gift = auto.find_element(
+        system_gift = self.auto.find_element(
             f"mirror/shop/enhance_gifts/shop_{self.second_system_select}.png",
             find_type="image_with_multiple_targets",
             threshold=0.85,
@@ -296,24 +300,24 @@ class Shop:
         system_gift = sort_points(system_gift, complete_count)
         while system_gift:
             gift = system_gift.pop(0)
-            auto.mouse_action_with_pos((gift[0], gift[1]), offset=True)
+            self.auto.mouse_action_with_pos((gift[0], gift[1]), offset=True)
             sleep(WAIT["MEDIUM"])
-            while auto.take_screenshot() is None:
+            while self.auto.take_screenshot() is None:
                 continue
-            if self.system == "bleed" and not cfg.not_skip_whitegossypium:
-                if auto.find_language_text("白棉花", ["white", "gossypium"], all_text=True):
-                    auto.mouse_click_blank(times=2)
+            if self.system == "bleed" and not self.config.not_skip_whitegossypium:
+                if self.auto.find_language_text("白棉花", ["white", "gossypium"], all_text=True):
+                    self.auto.mouse_click_blank(times=2)
                 sleep(WAIT["MEDIUM"])
-            if auto.click_element("mirror/shop/purchase_assets.png", take_screenshot=True):
+            if self.auto.click_element("mirror/shop/purchase_assets.png", take_screenshot=True):
                 sleep(WAIT["MEDIUM"])
-                auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True)
+                self.auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True)
                 complete_count += 1
                 system_gift = re_sort_points(system_gift)
-                auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
+                self.auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
                 continue
-            if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True):
+            if self.auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True):
                 sleep(WAIT["SHORT"])
-            auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
+            self.auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
             sleep(WAIT["MEDIUM"])
         return complete_count
 
@@ -321,23 +325,23 @@ class Shop:
         """尝试关键词刷新。返回 True 表示执行了刷新。"""
         if refresh_count >= self.max_keyword_refresh or money < 300:
             return False
-        auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
-        if not auto.click_element("mirror/shop/refresh_keyword_assets.png"):
+        self.auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
+        if not self.auto.click_element("mirror/shop/refresh_keyword_assets.png"):
             return False
         sleep(WAIT["MEDIUM"])
-        auto.click_element(f"mirror/shop/keyword/keyword_{self.system}.png", take_screenshot=True)
+        self.auto.click_element(f"mirror/shop/keyword/keyword_{self.system}.png", take_screenshot=True)
         sleep(WAIT["SHORT"])
-        auto.click_element("mirror/shop/refresh_keyword_confirm_assets.png")
+        self.auto.click_element("mirror/shop/refresh_keyword_confirm_assets.png")
         for _ in range(KEYWORD_CONFIRM_RETRIES):
-            if auto.find_element("mirror/shop/refresh_keyword_confirm_assets.png", take_screenshot=True):
+            if self.auto.find_element("mirror/shop/refresh_keyword_confirm_assets.png", take_screenshot=True):
                 log.debug("关键词刷新确认未生效，重试中")
                 sleep(WAIT["SHORT"])
-                auto.click_element(f"mirror/shop/keyword/keyword_{self.system}.png", take_screenshot=True)
+                self.auto.click_element(f"mirror/shop/keyword/keyword_{self.system}.png", take_screenshot=True)
                 sleep(WAIT["SHORT"])
-                auto.click_element("mirror/shop/refresh_keyword_confirm_assets.png", take_screenshot=True)
+                self.auto.click_element("mirror/shop/refresh_keyword_confirm_assets.png", take_screenshot=True)
             else:
                 break
-        auto.mouse_click_blank()
+        self.auto.mouse_click_blank()
         sleep(WAIT["VERY_LONG"])
         if retry() is False:
             raise self.RestartGame()
@@ -349,8 +353,8 @@ class Shop:
         """尝试普通刷新。返回 True 表示执行了刷新。"""
         if refresh_count >= self.max_normal_refresh or money < 200:
             return False
-        auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
-        if not auto.click_element("mirror/shop/refresh_assets.png"):
+        self.auto.mouse_click_blank(times=BLANK_CLICK_TIMES)
+        if not self.auto.click_element("mirror/shop/refresh_assets.png"):
             return False
         sleep(WAIT["VERY_LONG"])
         if retry() is False:
@@ -362,7 +366,7 @@ class Shop:
     def fuse_useless_gifts_aggressive(self):
         """合成无用饰品_激进版"""
 
-        scale = cfg.set_win_size / 1440
+        scale = self.config.set_win_size / 1440
 
         def processing_coordinates(my_gift_list, coordinates, threshold=50):
             """将需要保护的坐标移除出列表"""
@@ -375,7 +379,7 @@ class Shop:
 
             return my_gift_list
 
-        if auto.find_element(
+        if self.auto.find_element(
             f"mirror/shop/level_IV_gifts/{self.system}_level_IV.png",
             take_screenshot=True,
             threshold=0.75,
@@ -385,7 +389,7 @@ class Shop:
                 log.info("已有本体系四级饰品，切换到非激进模式")
                 return
 
-        if auto.find_element(
+        if self.auto.find_element(
             f"mirror/shop/level_IV_gifts/{self.second_system_select}_level_IV.png",
             take_screenshot=True,
         ):
@@ -398,14 +402,14 @@ class Shop:
 
         log.debug("开始执行激进合成模块")
         while True:
-            auto.mouse_to_blank()
-            if auto.take_screenshot() is None:
+            self.auto.mouse_to_blank()
+            if self.auto.take_screenshot() is None:
                 continue
 
             fuse = False
             gift_list = []
 
-            points = auto.find_element(
+            points = self.auto.find_element(
                 "mirror/shop/fuse_label.png", find_type="image_with_multiple_targets", threshold=0.9
             )
 
@@ -439,7 +443,7 @@ class Shop:
                 protect_list.append(f"mirror/shop/level_IV_gifts/{self.second_system_select}_level_IV.png")
 
             for protect_gift in protect_list:
-                if protect_coordinates := auto.find_element(protect_gift, threshold=0.7):
+                if protect_coordinates := self.auto.find_element(protect_gift, threshold=0.7):
                     gift_list = processing_coordinates(gift_list, protect_coordinates)
 
             if self.aggressive_save_systems:
@@ -451,7 +455,7 @@ class Shop:
                         coord[0] + 100 * scale,
                         coord[1] + 100 * scale,
                     ]
-                    if auto.find_element(
+                    if self.auto.find_element(
                         f"mirror/shop/enhance_gifts/{self.system}.png",
                         my_crop=system_bbox,
                     ):
@@ -461,8 +465,8 @@ class Shop:
 
             # 直到合成概率90%
             for coord in gift_list:
-                auto.mouse_click(coord[0], coord[1])
-                if auto.find_element(
+                self.auto.mouse_click(coord[0], coord[1])
+                if self.auto.find_element(
                     "mirror/shop/fuse_90%_assets.png",
                     threshold=0.97,
                     take_screenshot=True,
@@ -470,43 +474,43 @@ class Shop:
                     break
 
             # 如果无法合成四级，或可用饰品不足三个，则退出此次合成
-            if not auto.find_element("mirror/shop/fuse_90%_assets.png", take_screenshot=True):
+            if not self.auto.find_element("mirror/shop/fuse_90%_assets.png", take_screenshot=True):
                 return
-            if not auto.find_element("mirror/shop/fusion_level_IV_gift_assets.png", threshold=0.9):
+            if not self.auto.find_element("mirror/shop/fusion_level_IV_gift_assets.png", threshold=0.9):
                 return
 
             loop_times = 15
             fuse_use_starlight_chance = 5
             while True:
-                auto.mouse_to_blank()
-                if auto.take_screenshot() is None:
+                self.auto.mouse_to_blank()
+                if self.auto.take_screenshot() is None:
                     continue
 
-                if ego_gift_get_confirm := auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"):
-                    if auto.find_language_text(["残片", "罪孽"], ["fragment", "corrosion", "resources"]):
+                if ego_gift_get_confirm := self.auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"):
+                    if self.auto.find_language_text(["残片", "罪孽"], ["fragment", "corrosion", "resources"]):
                         fuse = True
                     else:
-                        if auto.find_language_text(system_cn_zh[self.system], self.system):
+                        if self.auto.find_language_text(system_cn_zh[self.system], self.system):
                             self.after_fuse_IV()
                             fuse = False
-                    auto.mouse_click(ego_gift_get_confirm[0], ego_gift_get_confirm[1])
+                    self.auto.mouse_click(ego_gift_get_confirm[0], ego_gift_get_confirm[1])
                     sleep(0.5)
-                    auto.click_element(
+                    self.auto.click_element(
                         "mirror/road_in_mir/ego_gift_get_confirm_assets.png",
                         take_screenshot=True,
                     )
                     break
 
-                if fuse_use_starlight_chance > 0 and auto.click_element("mirror/shop/fuse_use_starlight_assets.png"):
+                if fuse_use_starlight_chance > 0 and self.auto.click_element("mirror/shop/fuse_use_starlight_assets.png"):
                     fuse_use_starlight_chance -= 1
-                    auto.click_element(
+                    self.auto.click_element(
                         "mirror/shop/fuse_use_starlight_confirm_assets.png",
                         model="normal",
                         take_screenshot=True,
                     )
                     continue
 
-                if auto.click_element(
+                if self.auto.click_element(
                     "mirror/shop/enhance_and_fuse_and_sell_confirm_assets.png",
                     model="normal",
                 ):
@@ -521,7 +525,7 @@ class Shop:
 
             if fuse:
                 sleep(2)
-                auto.click_element("mirror/shop/fuse_ego_gift_assets.png", take_screenshot=True)
+                self.auto.click_element("mirror/shop/fuse_ego_gift_assets.png", take_screenshot=True)
                 continue
 
             break
@@ -531,7 +535,7 @@ class Shop:
 
     def fuse_useless_gifts(self):
         """合成无用饰品"""
-        scale = cfg.set_win_size / 1440
+        scale = self.config.set_win_size / 1440
 
         def protect_coordinates(my_gift_list, coordinates, threshold=50):
             """将需要保护的坐标移除出列表"""
@@ -567,8 +571,8 @@ class Shop:
         log.debug("开始执行普通合成模块")
         block = True
         while True:
-            auto.mouse_to_blank()
-            if auto.take_screenshot() is None:
+            self.auto.mouse_to_blank()
+            if self.auto.take_screenshot() is None:
                 continue
 
             fuse = False
@@ -577,7 +581,7 @@ class Shop:
 
             # 获取无用饰品列表
             for commodity in must_be_abandoned:
-                item = auto.find_element(commodity, find_type="image_with_multiple_targets")
+                item = self.auto.find_element(commodity, find_type="image_with_multiple_targets")
                 if "white_gossypium" in commodity and "bleed" in self.shop_sell_list:
                     continue
                 if item:
@@ -587,7 +591,7 @@ class Shop:
                         gift_list.append(item)
             for sell_system in self.shop_sell_list:
                 my_sell_system = f"mirror/shop/enhance_gifts/{sell_system}.png"
-                gift = auto.find_element(my_sell_system, find_type="image_with_multiple_targets")
+                gift = self.auto.find_element(my_sell_system, find_type="image_with_multiple_targets")
                 if gift:
                     if isinstance(gift, list):
                         log.debug(f"识别到{len(gift)}个{sell_system}饰品")
@@ -599,7 +603,7 @@ class Shop:
             my_list = processing_coordinates(gift_list)
 
             if self.second_system and self.second_system_action[0]:
-                if protect_gift := auto.find_element(
+                if protect_gift := self.auto.find_element(
                     f"mirror/shop/level_IV_gifts/{self.second_system_select}_level_IV.png"
                 ):
                     my_list = protect_coordinates(my_list, protect_gift)
@@ -614,7 +618,7 @@ class Shop:
                 for sequence in range(3):
                     try:
                         gift_position = my_list[sequence]
-                        auto.mouse_click(gift_position[0], gift_position[1])
+                        self.auto.mouse_click(gift_position[0], gift_position[1])
                         sleep(0.75)
                     except IndexError:
                         msg = f"饰品舍弃列表已经没有第{sequence + 1}项了"
@@ -625,71 +629,71 @@ class Shop:
                 loop_times = 15
                 fuse_IV = False
                 while True:
-                    auto.mouse_to_blank()
-                    if auto.take_screenshot() is None:
+                    self.auto.mouse_to_blank()
+                    if self.auto.take_screenshot() is None:
                         continue
 
                     if loop_times < 0:
                         break
                     loop_times -= 1
 
-                    if auto.find_element(
+                    if self.auto.find_element(
                         "mirror/shop/fusion_level_IV_gift_assets.png", threshold=0.9
-                    ) and auto.find_element("mirror/shop/fuse_90%_assets.png"):
+                    ) and self.auto.find_element("mirror/shop/fuse_90%_assets.png"):
                         fuse_IV = True
 
-                    if auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"):
+                    if self.auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"):
                         if fuse_IV:
-                            if auto.find_language_text(["残片", "罪孽"], ["fragment", "corrosion", "resources"]):
+                            if self.auto.find_language_text(["残片", "罪孽"], ["fragment", "corrosion", "resources"]):
                                 pass
                             else:
-                                if auto.find_language_text(system_cn_zh[self.system], self.system):
+                                if self.auto.find_language_text(system_cn_zh[self.system], self.system):
                                     self.fuse_IV = True
                                     self.fuse_aggressive_switch = False
                                     log.info("合成四级，切换到非激进模式")
                             fuse = True
-                            auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png")
+                            self.auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png")
                             sleep(1)
-                            auto.click_element(
+                            self.auto.click_element(
                                 "mirror/road_in_mir/ego_gift_get_confirm_assets.png",
                                 take_screenshot=True,
                             )
                             break
                         else:
-                            if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"):
+                            if self.auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"):
                                 fuse = True
                                 sleep(1)
-                                auto.click_element(
+                                self.auto.click_element(
                                     "mirror/road_in_mir/ego_gift_get_confirm_assets.png",
                                     take_screenshot=True,
                                 )
                                 break
 
-                    if auto.click_element(
+                    if self.auto.click_element(
                         "mirror/shop/enhance_and_fuse_and_sell_confirm_assets.png",
                         model="normal",
                     ):
                         continue
 
-                    if auto.click_element("mirror/shop/fuse_ego_gift_assets.png"):
+                    if self.auto.click_element("mirror/shop/fuse_ego_gift_assets.png"):
                         continue
 
                     if retry() is False:
                         raise self.RestartGame()
 
             if fuse:
-                auto.click_element("mirror/shop/fuse_ego_gift_assets.png", take_screenshot=True)
+                self.auto.click_element("mirror/shop/fuse_ego_gift_assets.png", take_screenshot=True)
                 continue
 
-            while auto.take_screenshot() is None:
+            while self.auto.take_screenshot() is None:
                 continue
-            list_block = auto.find_element("mirror/shop/gifts_list_block.png")
+            list_block = self.auto.find_element("mirror/shop/gifts_list_block.png")
             if list_block is not None and block:
                 block = False
-                auto.mouse_drag(list_block[0], list_block[1], drag_time=1, dy=500)
+                self.auto.mouse_drag(list_block[0], list_block[1], drag_time=1, dy=500)
                 continue
 
-            auto.mouse_click_blank(times=3)
+            self.auto.mouse_click_blank(times=3)
             break
 
         if retry() is False:
@@ -697,7 +701,7 @@ class Shop:
 
     def fuse_system_gifts(self):
         """合成体系饰品"""
-        auto.model = "clam"
+        self.auto.model = "clam"
         log.debug("开始执行体系饰品合成模块")
 
         # 获取合成结果
@@ -711,16 +715,16 @@ class Shop:
         self.enter_fuse()
 
         while True:
-            if list_block := auto.find_element("mirror/shop/gifts_list_block.png", take_screenshot=True):
-                auto.mouse_drag(list_block[0], list_block[1], drag_time=1, dy=-500)
-            points = auto.find_element(
+            if list_block := self.auto.find_element("mirror/shop/gifts_list_block.png", take_screenshot=True):
+                self.auto.mouse_drag(list_block[0], list_block[1], drag_time=1, dy=-500)
+            points = self.auto.find_element(
                 "mirror/shop/fuse_label.png",
                 find_type="image_with_multiple_targets",
                 threshold=0.85,
                 take_screenshot=True,
             )
             if len(points) < 2:
-                auto.mouse_click_blank(times=3)
+                self.auto.mouse_click_blank(times=3)
                 return
 
             points.sort(key=lambda c: (c[1], c[0]))
@@ -731,17 +735,17 @@ class Shop:
             fusion_gift = None
             # 如果找到能合成的公式饰品，则合成
             for gift in system_gifts:
-                if pos := auto.find_element(gift):
+                if pos := self.auto.find_element(gift):
                     if pos[1] > dividing_line:
                         continue
-                    auto.mouse_click(pos[0], pos[1])
+                    self.auto.mouse_click(pos[0], pos[1])
                     fusion = True
                     fusion_gift = gift.split("_")[-1]
                     break
 
             fusion_pos = []
             if not fusion:
-                all_system_gift = auto.find_element(
+                all_system_gift = self.auto.find_element(
                     f"mirror/shop/enhance_gifts/{self.system}.png",
                     find_type="image_with_multiple_targets",
                     take_screenshot=True,
@@ -751,38 +755,38 @@ class Shop:
                         if g[1] < dividing_line:
                             fusion_pos.append(g)
                 if len(fusion_pos) == 0:
-                    auto.mouse_click_blank(times=3)
+                    self.auto.mouse_click_blank(times=3)
                     return
                 else:
                     fusion = True
 
             if len(fusion_pos) > 0 and fusion_gift is None:
                 pos = fusion_pos.pop(0)
-                auto.mouse_click(pos[0], pos[1])
+                self.auto.mouse_click(pos[0], pos[1])
 
             chance = 5
             while fusion:
-                if auto.take_screenshot() is None:
+                if self.auto.take_screenshot() is None:
                     continue
 
                 if chance < 0:
                     if len(fusion_pos) > 0:
                         pos = fusion_pos.pop(0)
-                        auto.mouse_click(pos[0], pos[1])
+                        self.auto.mouse_click(pos[0], pos[1])
                         chance = 5
                     else:
-                        auto.mouse_click_blank(times=3)
+                        self.auto.mouse_click_blank(times=3)
                         return
                 else:
                     retry()
                     chance -= 1
 
-                auto.mouse_to_blank()
+                self.auto.mouse_to_blank()
 
-                if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"):
+                if self.auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"):
                     break
 
-                if auto.click_element(
+                if self.auto.click_element(
                     "mirror/shop/enhance_and_fuse_and_sell_confirm_assets.png",
                     model="normal",
                 ):
@@ -796,7 +800,7 @@ class Shop:
                 log.debug(msg)
 
     def sell_gifts(self):
-        scale = cfg.set_win_size / 1440
+        scale = self.config.set_win_size / 1440
 
         def protect_coordinates(my_gift, coordinates, threshold=50):
             """将需要保护的坐标移除出列表"""
@@ -815,7 +819,7 @@ class Shop:
         log.debug("开始执行饰品出售模块")
         while True:
             # 自动截图
-            if auto.take_screenshot() is None:
+            if self.auto.take_screenshot() is None:
                 continue
 
             gift_sell = False
@@ -824,28 +828,28 @@ class Shop:
                 raise self.RestartGame()
 
             if self.second_system and self.second_system_action[0] and second is None:
-                if protect_gift := auto.find_element(
+                if protect_gift := self.auto.find_element(
                     f"mirror/shop/level_IV_gifts/{self.second_system_select}_level_IV.png"
                 ):
                     second = protect_gift
 
-            if auto.click_element("mirror/shop/sell_gift_assets.png"):
+            if self.auto.click_element("mirror/shop/sell_gift_assets.png"):
                 continue
 
-            if auto.click_element("mirror/shop/sell_gift_confirm_assets.png"):
+            if self.auto.click_element("mirror/shop/sell_gift_confirm_assets.png"):
                 sleep(1)
                 continue
 
             if system_sell:
                 for sell_system in self.shop_sell_list:
                     my_sell_system = f"mirror/shop/enhance_gifts/{sell_system}.png"
-                    if sell_gift := auto.find_element(my_sell_system):
+                    if sell_gift := self.auto.find_element(my_sell_system):
                         if second is not None and protect_coordinates(sell_gift, second):
                             continue
                         else:
-                            auto.mouse_click(sell_gift[0], sell_gift[1])
-                            sleep(cfg.mouse_action_interval)
-                        auto.click_element(
+                            self.auto.mouse_click(sell_gift[0], sell_gift[1])
+                            sleep(self.config.mouse_action_interval)
+                        self.auto.click_element(
                             "mirror/shop/enhance_and_fuse_and_sell_confirm_assets.png",
                             model="normal",
                         )
@@ -861,9 +865,9 @@ class Shop:
                     return
                 continue
 
-            if list_block is False and auto.find_element("mirror/shop/gifts_list_block.png"):
-                block_position = auto.find_element("mirror/shop/gifts_list_block.png")
-                auto.mouse_drag(block_position[0], block_position[1], drag_time=1, dy=500)
+            if list_block is False and self.auto.find_element("mirror/shop/gifts_list_block.png"):
+                block_position = self.auto.find_element("mirror/shop/gifts_list_block.png")
+                self.auto.mouse_drag(block_position[0], block_position[1], drag_time=1, dy=500)
                 list_block = True
                 second = None
                 continue
@@ -871,8 +875,8 @@ class Shop:
             system_sell = False
 
             for commodity in must_be_abandoned:
-                if auto.click_element(commodity):
-                    auto.click_element(
+                if self.auto.click_element(commodity):
+                    self.auto.click_element(
                         "mirror/shop/enhance_and_fuse_and_sell_confirm_assets.png",
                         model="normal",
                     )
@@ -883,17 +887,17 @@ class Shop:
             if gift_sell:
                 continue
 
-            auto.mouse_click_blank(times=3)
+            self.auto.mouse_click_blank(times=3)
             sleep(1)
             break
 
     def enter_fuse(self):
         loop_count = 15
-        auto.model = "clam"
-        auto.mouse_to_blank()
+        self.auto.model = "clam"
+        self.auto.mouse_to_blank()
         log.debug("开始执行饰品合成前置模块")
         while True:
-            if auto.take_screenshot() is None:
+            if self.auto.take_screenshot() is None:
                 continue
 
             if (
@@ -903,33 +907,33 @@ class Shop:
                 and self.second_system_action[0] is True
                 and self.fuse_aggressive_switch is True
             ):
-                if auto.click_element(f"mirror/shop/keyword/keyword_{self.second_system_select}.png"):
-                    while auto.take_screenshot() is None:
+                if self.auto.click_element(f"mirror/shop/keyword/keyword_{self.second_system_select}.png"):
+                    while self.auto.take_screenshot() is None:
                         continue
-                    if auto.click_element("mirror/shop/fuse_gift_confirm_assets.png", model="normal"):
+                    if self.auto.click_element("mirror/shop/fuse_gift_confirm_assets.png", model="normal"):
                         sleep(0.5)
                         break
             else:
-                if auto.click_element(f"mirror/shop/keyword/keyword_{self.system}.png"):
-                    while auto.take_screenshot() is None:
+                if self.auto.click_element(f"mirror/shop/keyword/keyword_{self.system}.png"):
+                    while self.auto.take_screenshot() is None:
                         continue
-                    if auto.click_element("mirror/shop/fuse_gift_confirm_assets.png", model="normal"):
+                    if self.auto.click_element("mirror/shop/fuse_gift_confirm_assets.png", model="normal"):
                         sleep(0.5)
                         break
-            if auto.click_element("mirror/shop/fuse_to_select_keyword_assets.png"):
+            if self.auto.click_element("mirror/shop/fuse_to_select_keyword_assets.png"):
                 continue
 
             loop_count -= 1
             if loop_count < 10:
-                auto.model = "normal"
+                self.auto.model = "normal"
             if loop_count < 5:
-                auto.model = "aggressive"
+                self.auto.model = "aggressive"
             if loop_count < 0:
                 log.error("无法合成ego饰品")
                 return False
 
             # 进入合成页面
-            if auto.click_element("mirror/shop/fuse_gift_assets.png"):
+            if self.auto.click_element("mirror/shop/fuse_gift_assets.png"):
                 continue
 
         return True
@@ -941,7 +945,7 @@ class Shop:
             if self.enter_fuse() is False:
                 return False
             self.fuse_useless_gifts_aggressive()
-            auto.mouse_click_blank(times=3)
+            self.auto.mouse_click_blank(times=3)
         if self.fuse_switch is False:
             if self.fuse_IV is True and self.after_level_IV is True and self.after_level_IV_select == 3:
                 log.debug("合成四级后跳过商店，执行最后一次升级饰品")
@@ -955,7 +959,7 @@ class Shop:
             if self.enter_fuse() is False:
                 return False
             self.fuse_useless_gifts()
-            auto.mouse_click_blank(times=3)
+            self.auto.mouse_click_blank(times=3)
 
         # 再次激进合成
         if self.fuse_aggressive_switch and self.fuse_IV is not True and not self.only_system_fuse:
@@ -963,7 +967,7 @@ class Shop:
             if self.enter_fuse() is False:
                 return False
             self.fuse_useless_gifts_aggressive()
-            auto.mouse_click_blank(times=3)
+            self.auto.mouse_click_blank(times=3)
         if self.fuse_switch is False:
             if self.fuse_IV is True and self.after_level_IV is True and self.after_level_IV_select == 3:
                 log.debug("合成四级后跳过商店，执行最后一次升级饰品")
@@ -972,37 +976,37 @@ class Shop:
         # 合成体系饰品
         if not self.only_aggressive_fuse and not self.do_not_system_fuse:
             self.fuse_system_gifts()
-            auto.mouse_click_blank(times=3)
+            self.auto.mouse_click_blank(times=3)
 
     def heal_sinner(self):
         # 全体治疗
         loop_count = 10
-        auto.model = "clam"
+        self.auto.model = "clam"
         log.debug("开始执行罪人治疗模块")
         sinner_be_heal = False
         while True:
             # 自动截图
-            if auto.take_screenshot() is None:
+            if self.auto.take_screenshot() is None:
                 continue
 
             loop_count -= 1
             if loop_count < 5:
-                auto.model = "normal"
+                self.auto.model = "normal"
             if loop_count < 2:
-                auto.model = "aggressive"
+                self.auto.model = "aggressive"
             if loop_count < 0:
                 log.error("治疗罪人失败")
                 break
 
-            if sinner_be_heal is True and auto.click_element("mirror/shop/heal_sinner/heal_sinner_return_assets.png"):
-                if auto.find_element("mirror/shop/shop_coins_assets.png", take_screenshot=True):
+            if sinner_be_heal is True and self.auto.click_element("mirror/shop/heal_sinner/heal_sinner_return_assets.png"):
+                if self.auto.find_element("mirror/shop/shop_coins_assets.png", take_screenshot=True):
                     break
-                elif auto.find_element("mirror/shop/heal_sinner/heal_sinner_return_assets.png"):
+                elif self.auto.find_element("mirror/shop/heal_sinner/heal_sinner_return_assets.png"):
                     continue
-                elif auto.find_element("mirror/shop/heal_sinner/heal_sinner_return_assets.png"):
+                elif self.auto.find_element("mirror/shop/heal_sinner/heal_sinner_return_assets.png"):
                     continue
 
-            if auto.click_element("mirror/shop/heal_sinner/heal_all_sinner_assets.png"):
+            if self.auto.click_element("mirror/shop/heal_sinner/heal_all_sinner_assets.png"):
                 sinner_be_heal = True
                 continue
 
@@ -1015,7 +1019,7 @@ class Shop:
                     log.debug("金币不足，无法治疗罪人")
                     break
 
-            if auto.click_element("mirror/shop/heal_sinner/heal_sinner_assets.png"):
+            if self.auto.click_element("mirror/shop/heal_sinner/heal_sinner_assets.png"):
                 continue
 
             if retry() is False:
@@ -1052,20 +1056,20 @@ class Shop:
 
         log.debug("开始执行饰品升级模块")
 
-        my_scale = cfg.set_win_size / 1440
+        my_scale = self.config.set_win_size / 1440
         loop_try_count = 10
         while True:
             # 自动截图
-            if auto.take_screenshot() is None:
+            if self.auto.take_screenshot() is None:
                 continue
-            if button := auto.find_element("mirror/shop/sort_button_assets.png"):
-                auto.mouse_click(button[0], button[1])
-                auto.mouse_click(button[0], button[1] + 200 * my_scale)
+            if button := self.auto.find_element("mirror/shop/sort_button_assets.png"):
+                self.auto.mouse_click(button[0], button[1])
+                self.auto.mouse_click(button[0], button[1] + 200 * my_scale)
                 break
-            if auto.click_element("mirror/shop/enhance_gifts_assets.png"):
+            if self.auto.click_element("mirror/shop/enhance_gifts_assets.png"):
                 sleep(1)
                 continue
-            auto.mouse_click_blank()
+            self.auto.mouse_click_blank()
             loop_try_count -= 1
             if loop_try_count < 0:  # issue 171
                 if retry() is False:
@@ -1077,22 +1081,22 @@ class Shop:
                 return False
 
         loop_count = 30
-        auto.model = "clam"
+        self.auto.model = "clam"
         system_level_IV = False
         second_system_level_IV = False
         stale_count = 0
         while True:
             # 自动截图
-            if auto.take_screenshot() is None:
+            if self.auto.take_screenshot() is None:
                 continue
 
             next_gift = True
 
             # 升级本体系四级
             if not system_level_IV:
-                if level_IV := auto.find_element(f"mirror/shop/level_IV_gifts/{self.system}_level_IV.png"):
+                if level_IV := self.auto.find_element(f"mirror/shop/level_IV_gifts/{self.system}_level_IV.png"):
                     if check_enhanced(level_IV) is False:
-                        auto.mouse_click(level_IV[0], level_IV[1])
+                        self.auto.mouse_click(level_IV[0], level_IV[1])
                         if self.ego_gift_to_power_up() is False:
                             break
                         else:
@@ -1103,11 +1107,11 @@ class Shop:
             # 升级第二体系四级
             if self.second_system and self.second_system_action[3] and second_system_level_IV is False:
                 if self.second_system_setting == 1 or (self.second_system_setting == 0 and self.fuse_IV is True):
-                    if level_IV_2 := auto.find_element(
+                    if level_IV_2 := self.auto.find_element(
                         f"mirror/shop/level_IV_gifts/{self.second_system_select}_level_IV.png"
                     ):
                         if check_enhanced(level_IV_2) is False:
-                            auto.mouse_click(level_IV_2[0], level_IV_2[1])
+                            self.auto.mouse_click(level_IV_2[0], level_IV_2[1])
                             if self.ego_gift_to_power_up() is False:
                                 break
                             else:
@@ -1116,7 +1120,7 @@ class Shop:
                         continue
 
             if self.first_gift_enhance is False and system_level_IV is False:
-                if f_gift := auto.find_element(f"mirror/shop/enhance_gifts/big_{self.system}.png"):
+                if f_gift := self.auto.find_element(f"mirror/shop/enhance_gifts/big_{self.system}.png"):
                     if self.ego_gift_to_power_up() is False:
                         break
                     else:
@@ -1124,19 +1128,19 @@ class Shop:
                         self.first_gift_enhance = True
                         continue
 
-            if gifts := auto.find_element(
+            if gifts := self.auto.find_element(
                 f"mirror/shop/enhance_gifts/{self.system}.png",
                 find_type="image_with_multiple_targets",
             ):
                 gifts = sorted(gifts, key=lambda x: (x[1], x[0]))
                 raw_count = len(gifts)
-                screen_size = auto.screenshot.size if auto.screenshot is not None else None
+                screen_size = self.auto.screenshot.size if self.auto.screenshot is not None else None
                 gifts = _filter_enhance_gift_scan_points(gifts, screen_size)
                 if len(gifts) != raw_count:
                     log.debug(f"升级扫描区域过滤：{raw_count} -> {len(gifts)}")
                 for gift in gifts:
                     if check_enhanced(gift) is False:
-                        auto.mouse_click(gift[0], gift[1])
+                        self.auto.mouse_click(gift[0], gift[1])
                         if self.ego_gift_to_power_up() is False:
                             next_gift = False
                             break
@@ -1162,9 +1166,9 @@ class Shop:
 
             loop_count -= 1
             if loop_count < 20:
-                auto.model = "normal"
+                self.auto.model = "normal"
             if loop_count < 10:
-                auto.model = "aggressive"
+                self.auto.model = "aggressive"
             if loop_count < 0:
                 log.error("升级ego饰品失败")
                 break
@@ -1210,8 +1214,8 @@ class Shop:
         参数:
             image_path (str): 代表该技能替换模块的图片路径。
         """
-        if module_position := auto.find_element(image_path):
-            my_scale = cfg.set_win_size / 1440
+        if module_position := self.auto.find_element(image_path):
+            my_scale = self.config.set_win_size / 1440
             bbox = (
                 module_position[0] - 150 * my_scale,
                 module_position[1] + 20 * my_scale,
@@ -1229,10 +1233,10 @@ class Shop:
                 for i in range(sinner_nums)
                 if (i + 1) in self.sinner_team
             ]
-            if auto.find_language_text(sinner_zh, sinner_en, my_crop=bbox):
-                auto.mouse_click(module_position[0], module_position[1] - 100 * my_scale)
+            if self.auto.find_language_text(sinner_zh, sinner_en, my_crop=bbox):
+                self.auto.mouse_click(module_position[0], module_position[1] - 100 * my_scale)
                 sleep(0.5)
-                coins = auto.find_element(
+                coins = self.auto.find_element(
                     "mirror/shop/skill_replacement_coins.png",
                     find_type="image_with_multiple_targets",
                     take_screenshot=True,
@@ -1241,10 +1245,10 @@ class Shop:
                     return
                 coins = sorted(coins, key=lambda x: x[0])
                 select_mode = 3 - self.skill_replacement_mode - 1
-                auto.mouse_click(coins[select_mode][0], coins[select_mode][1])
+                self.auto.mouse_click(coins[select_mode][0], coins[select_mode][1])
                 sleep(0.5)
-                auto.click_element("mirror/shop/skill_replacement_confirm_assets.png")
-                auto.click_element("mirror/shop/skill_replacement_confirm_assets.png")
+                self.auto.click_element("mirror/shop/skill_replacement_confirm_assets.png")
+                self.auto.click_element("mirror/shop/skill_replacement_confirm_assets.png")
                 # 检测游戏是否异常，若异常则重启游戏
                 if retry() is False:
                     raise self.RestartGame()
@@ -1258,7 +1262,7 @@ class Shop:
         参数:
             image_path (str): 代表该技能替换模块的图片路径。
         """
-        my_scale = cfg.set_win_size / 1440
+        my_scale = self.config.set_win_size / 1440
         sinner_x = [
             x * my_scale
             for x in [
@@ -1280,13 +1284,13 @@ class Shop:
         sinner_nums = {0: 1, 1: 3, 2: 7}.get(self.skill_replacement_select, 12)
         sinner_indices = [i for i in range(sinner_nums) if (i + 1) in self.sinner_team]
         for i in sinner_indices:
-            if auto.find_element("mirror/shop/ID_skill_replace_0_purchased_assets.png"):
+            if self.auto.find_element("mirror/shop/ID_skill_replace_0_purchased_assets.png"):
                 return
-            auto.click_element(image_path)
+            self.auto.click_element(image_path)
             sleep(0.5)
-            auto.mouse_click(sinner_x[i], sinner_y)
+            self.auto.mouse_click(sinner_x[i], sinner_y)
             sleep(0.5)
-            coins = auto.find_element(
+            coins = self.auto.find_element(
                 "mirror/shop/skill_replacement_coins.png",
                 find_type="image_with_multiple_targets",
                 take_screenshot=True,
@@ -1295,14 +1299,14 @@ class Shop:
                 continue
             coins = sorted(coins, key=lambda x: x[0])
             select_mode = 3 - self.skill_replacement_mode - 1
-            auto.mouse_click(coins[select_mode][0], coins[select_mode][1])
+            self.auto.mouse_click(coins[select_mode][0], coins[select_mode][1])
             sleep(0.5)
-            auto.click_element("mirror/shop/skill_replacement_confirm_assets.png")
-            auto.click_element("mirror/shop/skill_replacement_confirm_assets.png")
+            self.auto.click_element("mirror/shop/skill_replacement_confirm_assets.png")
+            self.auto.click_element("mirror/shop/skill_replacement_confirm_assets.png")
             if retry() is False:
                 raise self.RestartGame()
         # 如果所有优先罪人都没有技能可替换，则点击返回按钮退出该界面
-        auto.click_element("mirror/shop/ID_skill_replace_search_return_assets.png")
+        self.auto.click_element("mirror/shop/ID_skill_replace_search_return_assets.png")
 
     def replacement_skill(self):
         """
@@ -1315,21 +1319,21 @@ class Shop:
         log.debug(msg)
         self.replacement = 0
         # 检查是否在超级商店
-        is_super_shop = auto.find_element("mirror/shop/super_shop_assets.png")
+        is_super_shop = self.auto.find_element("mirror/shop/super_shop_assets.png")
         if is_super_shop:
             log.debug("超级商店")
 
             # 1. 超级商店存在两个普通技能替换
-            if not auto.find_element("mirror/shop/ID_skill_replace_1_purchased_assets.png"):
+            if not self.auto.find_element("mirror/shop/ID_skill_replace_1_purchased_assets.png"):
                 self.id_skill_replacement("mirror/shop/super_shop_skill_replacement_1_assets.png")
             else:
                 self.replacement += 1
-            if not auto.find_element("mirror/shop/ID_skill_replace_2_purchased_assets.png"):
+            if not self.auto.find_element("mirror/shop/ID_skill_replace_2_purchased_assets.png"):
                 self.id_skill_replacement("mirror/shop/super_shop_skill_replacement_2_assets.png")
             else:
                 self.replacement += 1
 
-            if not auto.find_element("mirror/shop/ID_skill_replace_0_purchased_assets.png"):
+            if not self.auto.find_element("mirror/shop/ID_skill_replace_0_purchased_assets.png"):
                 self.selected_id_skill_replacement("mirror/shop/ID_skill_search_assets.png")
             else:
                 self.replacement += 1
@@ -1337,7 +1341,7 @@ class Shop:
         # 普通商店流程
         else:
             log.debug("普通商店")
-            if not auto.find_element("mirror/shop/ID_skill_replace_0_purchased_assets.png"):
+            if not self.auto.find_element("mirror/shop/ID_skill_replace_0_purchased_assets.png"):
                 self.id_skill_replacement("mirror/shop/skill_replacement_assets.png")
             else:
                 self.replacement = 3
@@ -1359,11 +1363,11 @@ class Shop:
                     break
 
                 # 自动截图
-                if auto.take_screenshot() is None:
+                if self.auto.take_screenshot() is None:
                     continue
 
-                auto.mouse_click_blank(times=3)
-                auto.click_element("mirror/shop/return_assets.png")
+                self.auto.mouse_click_blank(times=3)
+                self.auto.click_element("mirror/shop/return_assets.png")
                 sleep(1)
 
                 if self.skill_replacement and skill is False:
@@ -1420,32 +1424,32 @@ class Shop:
 
                 break
 
-            auto.mouse_click_blank(times=3)
+            self.auto.mouse_click_blank(times=3)
 
             loop_count = 30
-            auto.model = "clam"
+            self.auto.model = "clam"
             while True:
                 # 自动截图
-                if auto.take_screenshot() is None:
+                if self.auto.take_screenshot() is None:
                     continue
 
                 if retry() is False:
                     raise self.RestartGame()
-                if auto.find_element("mirror/road_in_mir/legend_assets.png"):
+                if self.auto.find_element("mirror/road_in_mir/legend_assets.png"):
                     break
-                if auto.click_element("mirror/shop/leave_shop_confirm_assets.png"):
+                if self.auto.click_element("mirror/shop/leave_shop_confirm_assets.png"):
                     continue
-                if auto.click_element("mirror/shop/leave_assets.png"):
+                if self.auto.click_element("mirror/shop/leave_assets.png"):
                     sleep(1)
                     continue
-                if auto.click_element("mirror/shop/heal_sinner/heal_sinner_return_assets.png"):
+                if self.auto.click_element("mirror/shop/heal_sinner/heal_sinner_return_assets.png"):
                     continue
                 loop_count -= 1
                 if loop_count < 20:
-                    auto.model = "normal"
+                    self.auto.model = "normal"
                 if loop_count < 10:
-                    auto.model = "aggressive"
-                    auto.mouse_click_blank(times=3)
+                    self.auto.model = "aggressive"
+                    self.auto.mouse_click_blank(times=3)
                 if loop_count < 0:
                     log.error("无法退出商店,尝试回到初始界面")
                     back_init_menu()
@@ -1488,11 +1492,11 @@ class Shop:
             return None
 
         def _retry_money_ocr_with_scaled_crop(money_bbox, scale=2):
-            if auto.screenshot is None or money_bbox is None:
+            if self.auto.screenshot is None or money_bbox is None:
                 return []
 
             try:
-                crop = auto.screenshot.crop(money_bbox)
+                crop = self.auto.screenshot.crop(money_bbox)
                 width, height = crop.size
                 try:
                     resampling = Image.Resampling.BICUBIC
@@ -1514,7 +1518,7 @@ class Shop:
                 money_bbox = ImageUtils.get_bbox(ImageUtils.load_image("mirror/shop/my_money_heal_bbox.png"))
             else:
                 money_bbox = ImageUtils.get_bbox(ImageUtils.load_image("mirror/shop/my_money_bbox.png"))
-            my_money = auto.get_text_from_screenshot(money_bbox)
+            my_money = self.auto.get_text_from_screenshot(money_bbox)
             parsed_money = _extract_money_from_ocr_texts(my_money)
             if parsed_money is None:
                 scaled_money = _retry_money_ocr_with_scaled_crop(money_bbox, scale=2)

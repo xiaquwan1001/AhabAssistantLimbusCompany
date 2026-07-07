@@ -12,11 +12,19 @@ from tasks.mirror.constants import get_scale
 
 
 class MirrorMap:
-    def __init__(self, floor=1, hard_mode=False):
+    def __init__(self, floor=1, hard_mode=False, automation=None, config=None):
         self.floor = floor
         self.floor_map = []
         self.map = {}
         self.hard_mode = hard_mode
+        if automation is None:
+            from mirror.infra.legacy_adapters import get_automation
+            automation = get_automation()
+        if config is None:
+            from mirror.infra.legacy_adapters import get_config
+            config = get_config()
+        self.auto = automation
+        self.config = config
 
     def get_next_step(self):
         re_identify = False
@@ -44,29 +52,29 @@ class MirrorMap:
             return False
 
     def enter_next_node(self, next_step):
-        if cfg.mirror_keyboard_navigation:
+        if self.config.mirror_keyboard_navigation:
             log.debug(f"通过键盘按键寻路: {next_step}")
             if next_step == "U":
-                auto.key_press("up")
+                self.auto.key_press("up")
             elif next_step == "D":
-                auto.key_press("down")
+                self.auto.key_press("down")
             elif next_step == "M":
-                auto.key_press("right")
+                self.auto.key_press("right")
             sleep(0.5)
-            auto.key_press("enter")
+            self.auto.key_press("enter")
             sleep(1.25)
-            if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
+            if self.auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
                 return True
             return True
 
         if next_position := self._get_next_position(next_step):
-            auto.mouse_click(next_position[0], next_position[1])
+            self.auto.mouse_click(next_position[0], next_position[1])
             sleep(1.25)
-            if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
+            if self.auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
                 return True
-        if auto.click_element("mirror/mybus_default_distance.png", take_screenshot=True):
+        if self.auto.click_element("mirror/mybus_default_distance.png", take_screenshot=True):
             sleep(1.25)
-            if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
+            if self.auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
                 return True
         return False
 
@@ -84,7 +92,7 @@ class MirrorMap:
         elif direction == "U":
             position = 2
         for _ in range(3):
-            if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
+            if bus_position := self.auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
                 return [
                     bus_position[0] + three_roads[position][0],
                     bus_position[1] + three_roads[position][1],
@@ -100,6 +108,8 @@ class MirrorMap:
         self.floor = floor
 
 
+
+# TODO(strangler): inject via parameter
 def get_node_weight(x, y):
     scale = get_scale()
     road_node_bbox = (
@@ -125,6 +135,7 @@ def get_node_weight(x, y):
 
 
 # 在默认缩放情况下，进行镜牢寻路
+# TODO(strangler): inject via parameter
 def search_road_default_distance():
     """默认缩放距离下的镜牢寻路。先检测权重3节点，再遍历全部节点。"""
     start_time = time.time()
@@ -171,6 +182,7 @@ def _make_three_roads(scale: float) -> list:
     ]
 
 
+# TODO(strangler): inject via parameter
 def _try_weighted_node(roads: list, scale: float) -> bool:
     """检测 roads 中是否有权重3的节点，直接选择进入。"""
     if not (bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)):
@@ -190,6 +202,7 @@ def _try_weighted_node(roads: list, scale: float) -> bool:
     return False
 
 
+# TODO(strangler): inject via parameter
 def _drag_bus_to_center(bus_position, scale: float, start_time: float):
     """将 bus 拖动到垂直中心区域 (600-700 y)。"""
     from tasks.base.retry import check_times
@@ -233,6 +246,7 @@ def _compute_node_weights(bus_position, three_roads: list, node_list: list) -> d
 
 
 # 如果默认缩放无法镜牢寻路，进行滚轮缩放后继续寻路
+# TODO(strangler): inject via parameter
 def search_road_farthest_distance():
     scale = get_scale()
     auto.mouse_click_blank()
@@ -262,6 +276,7 @@ def search_road_farthest_distance():
     return False
 
 
+# TODO(strangler): inject via parameter
 def search_road_from_road_map(hard_mode=False):
     """使用路网地图进行寻路。返回 (directions, road_class_list) 或 (False, [])。"""
     start_time = time.time()
@@ -315,6 +330,7 @@ def search_road_from_road_map(hard_mode=False):
     return _build_and_search_route(all_nodes, bus, initial_bus_pos, hard_mode)
 
 
+# TODO(strangler): inject via parameter
 def _align_bus_to_target(start_time: float, scale: float):
     """将 bus 拖动到目标位置（675-700 y, <150 x）。返回 bus 坐标或 None。"""
     from tasks.base.retry import check_times
@@ -345,6 +361,7 @@ def _align_bus_to_target(start_time: float, scale: float):
             return bus_position
 
 
+# TODO(strangler): inject via parameter
 def _reposition_bus_by_y(start_time: float, scale: float, reset_position: str):
     """根据 y 区域重定位 bus。返回 bus 坐标或 None。"""
     from tasks.base.retry import check_times
@@ -376,6 +393,7 @@ def _reposition_bus_by_y(start_time: float, scale: float, reset_position: str):
             return None
 
 
+# TODO(strangler): inject via parameter
 def _build_and_search_route(all_nodes, bus, initial_bus_pos, hard_mode):
     """构建路由图并搜索最优路径。返回 (directions, road_class_list)。"""
     bus_pos = auto.find_element("mirror/mybus_default_distance.png")
@@ -427,6 +445,7 @@ def _get_onnx_session():
     return _ONNX_SESSION
 
 
+# TODO(strangler): inject via parameter
 def _run_yolo_inference() -> list | None:
     """截图 → YOLO 推理 → NMS 后处理。返回检测结果列表，无结果返回 None。"""
     import numpy as np
@@ -500,6 +519,7 @@ def _yolo_detections_to_nodes(detections: list, bus_x: float) -> list:
     return node_list
 
 
+# TODO(strangler): inject via parameter
 def identify_road(bus_x, min_length=160, merge_distance=230):
     """
     增强版LSD对角线检测，完整输出模块，显示方向标记和中心点
