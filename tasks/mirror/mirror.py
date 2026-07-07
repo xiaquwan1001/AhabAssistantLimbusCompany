@@ -42,6 +42,7 @@ from tasks.mirror.constants import (
     MIN_LOOP,
     SINNER_LIVE_THRESHOLD,
     BATTLE_FAIL_RETRY_THRESHOLD,
+    EVENT_CLICK_TIMES,
     get_scale,
 )
 
@@ -212,6 +213,269 @@ class Mirror:
                 back_init_menu()
                 break
 
+    def _run_claim_check(self) -> bool:
+        """检查镜牢结束奖励页，已结束则返回 True 触发 break。"""
+        if auto.find_element("mirror/claim_reward/battle_statistics_assets.png"):
+            if auto.click_element("mirror/claim_reward/claim_rewards_assets.png") is False:
+                bbox = ImageUtils.get_bbox(
+                    ImageUtils.load_image("mirror/claim_reward/claim_rewards_assets.png")
+                )
+                auto.mouse_click(
+                    (bbox[0] + bbox[2]) / 2,
+                    (bbox[1] + bbox[3]) / 2,
+                )
+            return True
+        if auto.find_element("mirror/claim_reward/claim_rewards_assets.png") and auto.find_element(
+            "mirror/claim_reward/complete_mirror_100%_assets.png"
+        ):
+            return True
+        if auto.find_element(
+            "mirror/claim_reward/use_enkephalin_assets.png",
+            threshold=0.9,
+            model="clam",
+        ):
+            return True
+        return False
+
+    def _run_theme_pack(self, main_loop_count: int) -> bool:
+        """选择楼层主题包并记录楼层时间。处理成功返回 True。"""
+        if not auto.find_element("mirror/theme_pack/feature_theme_pack_assets.png"):
+            return False
+        sleep(2)
+        select_theme_pack(self.hard_switch, self.floor, self.team_order, self.use_custom_theme_pack_weight)
+        if self.re_formation_each_floor:
+            self.first_battle = True
+        try:
+            floor_num = self.floor
+            if floor_num != 0:
+                prev = self.floor_times[floor_num - 1]
+                if prev > 0:
+                    floor_time = time.time() - prev
+                    msg = f"启动后第{self.floor}层卡包"
+                else:
+                    floor_time = time.time() - self.floor_times[0]
+                    msg = f"启动后第{self.floor}层卡包，该楼层时间不完整"
+                to_log_with_time(msg, floor_time)
+            self.floor_times[floor_num] = time.time()
+        except Exception:
+            log.info("楼层异常，可能是OCR识别错误，本轮镜牢层间的时间记录无效")
+        self.get_floor_num = True
+        return True
+
+    def _run_event_effect(self) -> bool:
+        """处理选择增益事件（少见）。处理成功返回 True。"""
+        if not auto.click_element("mirror/road_in_mir/event_effect_button.png", threshold=0.75):
+            return False
+        auto.click_element("mirror/road_in_mir/select_event_effect_confirm.png")
+        return True
+
+    def _run_road_navigation(self) -> bool:
+        """在镜牢中寻路。返回 True 表示已处理。"""
+        if not auto.find_element("mirror/road_in_mir/legend_assets.png"):
+            return False
+        auto.mouse_to_blank()
+        while auto.take_screenshot() is None:
+            continue
+        if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"):
+            return True
+        if auto.find_element("teams/identify_assets.png"):
+            return True
+        if auto.find_element("mirror/shop/shop_coins_assets.png", model="normal"):
+            return True
+        if auto.find_element("mirror/claim_reward/claim_rewards_assets.png") and auto.find_element(
+            "mirror/claim_reward/complete_mirror_100%_assets.png"
+        ):
+            return True  # signals caller to break — handled in main loop dispatch
+        retry()
+        if self.get_floor_num:
+            self.get_which_floor()
+        if cfg.floor_3_exit and self.floor >= 4:
+            return True
+        while auto.take_screenshot() is None:
+            continue
+        if auto.find_element("mirror/road_in_mir/legend_assets.png"):
+            self.find_road_total_time += self.search_road()
+        return True
+
+    # ── Main loop dispatch handlers ──
+
+    def _run_enter_node(self) -> bool:
+        """进入寻路线路节点。"""
+        return bool(auto.click_element("mirror/road_in_mir/enter_assets.png"))
+
+    def _run_team_select(self) -> bool:
+        """选择镜牢队伍。"""
+        if not auto.find_element("mirror/road_to_mir/select_team_stars_assets.png"):
+            return False
+        self.select_mirror_team()
+        return True
+
+    def _run_battle_fail_check(self) -> bool:
+        """战斗失败次数过多时重开。"""
+        if battle.fail_times < BATTLE_FAIL_RETRY_THRESHOLD:
+            return False
+        battle.fail_times = 0
+        self.re_start()
+        return True
+
+    def _run_battle_deploy(self) -> bool:
+        """战斗配队（含首次编队、罪人存活检测）。"""
+        if not auto.find_element("teams/identify_assets.png"):
+            return False
+        if self.first_battle:
+            team_formation(self.sinner_team)
+            self.first_battle = False
+            return True
+        if auto.click_element("teams/none_sinner_assets.png", model="clam"):
+            self.first_battle = True
+            return True
+        if not (
+            auto.find_element("teams/12_sinner_live_assets.png")
+            or auto.find_element("teams/11_sinner_live_assets.png")
+            or auto.find_element("teams/10_sinner_live_assets.png")
+        ):
+            continue_mirror = check_team()
+            if continue_mirror is False and self.first_battle is False:
+                self.re_start()
+        if auto.click_element("battle/chaim_to_battle_assets.png") or auto.click_element(
+            "battle/normal_to_battle_assets.png"
+        ):
+            retry()
+            return True
+        return False
+
+    def _run_no_team(self) -> bool:
+        """没有配队时重置。"""
+        if not auto.find_element("battle/select_none_assets.png"):
+            return False
+        auto.mouse_click_blank()
+        self.first_battle = True
+        return True
+
+    def _run_battle(self, main_loop_count: int) -> bool:
+        """战斗识别与执行（主战斗 + keyword/OCR fallback + win_rate）。"""
+        in_battle = auto.find_element("battle/more_information_assets.png") or auto.find_element(
+            "battle/in_mirror_assets.png"
+        )
+        if in_battle:
+            self.battle_total_time += battle.fight(self.avoid_skill_3, self.defense_first_round)
+            return True
+        if battle.identify_keyword_turn and self.LOOP_COUNT - main_loop_count < 5:
+            if auto.find_element("battle/turn_assets.png") or auto.find_element("battle/in_mirror_assets.png"):
+                self.battle_total_time += battle.fight(self.avoid_skill_3, self.defense_first_round)
+                return True
+        turn_bbox = ImageUtils.get_bbox(ImageUtils.load_image("battle/turn_assets.png"))
+        turn_ocr_result = auto.find_text_element("turn", turn_bbox)
+        if turn_ocr_result is not False:
+            self.battle_total_time += battle.fight(self.avoid_skill_3, self.defense_first_round)
+            return True
+        if auto.find_element("battle/win_rate_card.png") and auto.find_element("battle/gear_right.png"):
+            self.battle_total_time += battle.fight(self.avoid_skill_3, self.defense_first_round)
+            return True
+        return False
+
+    def _run_starlight(self) -> bool:
+        """镜牢星光选择。"""
+        if not auto.find_element("mirror/road_to_mir/dreaming_star/coins_assets.png", threshold=0.9):
+            return False
+        self.enter_mir_with_star()
+        return True
+
+    def _run_ego_gift_acquisition(self, main_loop_count: int) -> bool:
+        """选择/拒绝EGO饰品（包含三种判定）。"""
+        if auto.find_element("mirror/road_in_mir/acquire_ego_gift_card.png"):
+            self.acquire_ego_gift()
+            return True
+        if (
+            main_loop_count < 50
+            and auto.find_element("mirror/road_in_mir/acquire_ego_gift_box_assets.png", model="clam")
+            and auto.find_element("mirror/road_in_mir/acquire_ego_gift_refuse_assets.png", model="clam")
+        ):
+            self.acquire_ego_gift(type=2)
+            return True
+        if main_loop_count < 30 and auto.find_language_text("拒绝饰品", "refuse"):
+            self.acquire_ego_gift(type=2)
+            return True
+        return False
+
+    def _run_ego_gift_confirm(self) -> bool:
+        """确认获取EGO饰品。"""
+        return bool(auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"))
+
+    def _run_event(self) -> bool:
+        """事件处理。"""
+        if not auto.click_element("event/skip_assets.png", times=EVENT_CLICK_TIMES):
+            return False
+        self.event_handling()
+        return True
+
+    def _run_shop(self) -> bool:
+        """商店操作。"""
+        if not auto.find_element("mirror/shop/shop_coins_assets.png"):
+            return False
+        self.shop_total_time += self.in_shop()
+        return True
+
+    def _run_reward_card(self) -> bool:
+        """选择奖励卡。"""
+        if not auto.find_element("mirror/road_in_mir/select_encounter_reward_card_assets.png"):
+            return False
+        if self.reward_cards:
+            get_reward_card(self.reward_cards_select)
+        else:
+            get_reward_card()
+        return True
+
+    def _run_enter_mirror(self) -> bool:
+        """从主界面/镜牢界面进入镜牢。返回 True 时调用者需检查 bequest。"""
+        if auto.click_element("home/drive_assets.png") or auto.find_element("home/window_assets.png"):
+            sleep(0.5)
+            if self.road_to_mir() and self.bequest_from_the_previous_game:
+                return True
+            return True
+        if auto.click_element("mirror/road_to_mir/enter_assets.png"):
+            if self.road_to_mir() and self.bequest_from_the_previous_game:
+                return True
+            return True
+        return False
+
+    def _run_init_ego_gift(self) -> bool:
+        """初始饰品选择。"""
+        if not (
+            auto.find_element("mirror/road_to_mir/activate_gift_search_on_assets.png")
+            or auto.find_element("mirror/road_to_mir/activate_gift_search_off_assets.png")
+        ):
+            return False
+        self.select_init_ego_gift()
+        return True
+
+    def _run_observe_ego_gift(self) -> bool:
+        """观测EGO饰品。"""
+        if not (
+            auto.find_element("mirror/road_to_mir/observe_ego_gift/observe_bleed_assets.png", model="clam")
+            or auto.find_element("mirror/road_to_mir/observe_ego_gift/observe_burn_assets.png", model="clam")
+        ):
+            return False
+        self.select_observe_ego_gift()
+        return True
+
+    def _run_close_infinity(self) -> bool:
+        """关闭无限镜牢弹窗。"""
+        if not auto.find_element("mirror/infinity_mirror_assets.png"):
+            return False
+        auto.click_element("mirror/infinity_mirror_close_assets.png")
+        return True
+
+    def _run_dismiss_prompt(self) -> bool:
+        """关闭首屏提示。"""
+        if not (
+            auto.find_element("home/first_prompt_assets.png", model="clam")
+            and auto.find_element("home/back_assets.png", model="normal")
+        ):
+            return False
+        auto.click_element("home/back_assets.png")
+        return True
+
     def run(self):
         # 计时开始
         start_time = time.time()
@@ -240,233 +504,71 @@ class Mirror:
                 if auto.click_element("mirror/road_in_mir/setting_assets.png"):
                     continue
 
-            # 镜牢结束领取奖励
-            if auto.find_element("mirror/claim_reward/battle_statistics_assets.png"):
-                if auto.click_element("mirror/claim_reward/claim_rewards_assets.png") is False:
-                    claim_rewards_bbox = ImageUtils.get_bbox(
-                        ImageUtils.load_image("mirror/claim_reward/claim_rewards_assets.png")
-                    )
-                    auto.mouse_click(
-                        (claim_rewards_bbox[0] + claim_rewards_bbox[2]) / 2,
-                        (claim_rewards_bbox[1] + claim_rewards_bbox[3]) / 2,
-                    )
-                break
-            if auto.find_element("mirror/claim_reward/claim_rewards_assets.png") and auto.find_element(
-                "mirror/claim_reward/complete_mirror_100%_assets.png"
-            ):
-                break
-            if auto.find_element(
-                "mirror/claim_reward/use_enkephalin_assets.png",
-                threshold=0.9,
-                model="clam",
-            ):
-                break
+        if self._run_claim_check():
+            break
 
-            # 选择楼层主题包的情况
-            if auto.find_element("mirror/theme_pack/feature_theme_pack_assets.png"):
-                sleep(2)
-                select_theme_pack(self.hard_switch, self.floor, self.team_order, self.use_custom_theme_pack_weight)
-                if self.re_formation_each_floor:
-                    self.first_battle = True
-                try:
-                    floor_num = self.floor  # 0,1,2,3,4
-                    if floor_num != 0:
-                        if self.floor_times[floor_num - 1] > 0:
-                            floor_time = time.time() - self.floor_times[floor_num - 1]
-                            msg = f"启动后第{self.floor}层卡包"
-                        else:
-                            floor_time = time.time() - self.floor_times[0]
-                            msg = f"启动后第{self.floor}层卡包，该楼层时间不完整"
-                        to_log_with_time(msg, floor_time)
-                    self.floor_times[floor_num] = time.time()
-                except Exception:
-                    log.info("楼层异常，可能是OCR识别错误，本轮镜牢层间的时间记录无效")
-                self.get_floor_num = True
-                main_loop_count += 50
-                continue
+        if self._run_theme_pack(main_loop_count):
+            main_loop_count += 50
+            continue
 
-            # 遇到选择增益事件（少见）
-            if auto.click_element("mirror/road_in_mir/event_effect_button.png", threshold=0.75):
-                auto.click_element("mirror/road_in_mir/select_event_effect_confirm.png")
-                continue
+        if self._run_event_effect():
+            continue
 
-            # 在镜牢中寻路
-            if auto.find_element("mirror/road_in_mir/legend_assets.png"):
-                auto.mouse_to_blank()
-                while auto.take_screenshot() is None:
-                    continue
-                if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"):
-                    continue
-                if auto.find_element("teams/identify_assets.png"):
-                    continue
-                if auto.find_element("mirror/shop/shop_coins_assets.png", model="normal"):
-                    continue
-                if auto.find_element("mirror/claim_reward/claim_rewards_assets.png") and auto.find_element(
-                    "mirror/claim_reward/complete_mirror_100%_assets.png"
-                ):
-                    break
-                retry()
-                if self.get_floor_num:
-                    self.get_which_floor()
+        if self._run_road_navigation():
+            continue
 
-                if cfg.floor_3_exit and self.floor >= 4:
-                    continue
+        if self._run_enter_node():
+            continue
 
-                while auto.take_screenshot() is None:
-                    continue
-                if auto.find_element("mirror/road_in_mir/legend_assets.png"):
-                    self.find_road_total_time += self.search_road()
-                continue
+        if self._run_team_select():
+            continue
 
-            # 进入节点
-            if auto.click_element("mirror/road_in_mir/enter_assets.png"):
-                continue
+        if self._run_battle_fail_check():
+            continue
 
-            # 选择镜牢队伍
-            if auto.find_element("mirror/road_to_mir/select_team_stars_assets.png"):
-                self.select_mirror_team()
-                continue
+        if self._run_battle_deploy():
+            continue
 
-            if battle.fail_times >= 5:
-                battle.fail_times = 0
-                self.re_start()
-                continue
+        if self._run_no_team():
+            continue
 
-            # 战斗配队的情况
-            if auto.find_element("teams/identify_assets.png"):
-                # 如果第一次启动脚本，还没进行编队，就先编队
-                if self.first_battle:
-                    team_formation(self.sinner_team)
-                    self.first_battle = False
-                    continue
-                # 战斗配队失败的情况
-                if auto.click_element("teams/none_sinner_assets.png", model="clam"):
-                    self.first_battle = True
-                    continue
-                # 检测罪人幸存人数是否少于10人
-                if not (
-                    auto.find_element("teams/12_sinner_live_assets.png")
-                    or auto.find_element("teams/11_sinner_live_assets.png")
-                    or auto.find_element("teams/10_sinner_live_assets.png")
-                ):
-                    continue_mirror = check_team()
-                    # 如果还有至少5人能战斗就继续，不然就退出重开
-                    if continue_mirror is False and self.first_battle is False:
-                        self.re_start()
-                if auto.click_element("battle/chaim_to_battle_assets.png") or auto.click_element(
-                    "battle/normal_to_battle_assets.png"
-                ):
-                    retry()
-                    continue
+        if self._run_battle(main_loop_count):
+            continue
 
-            # 没有配队的情况
-            if auto.find_element("battle/select_none_assets.png"):
-                auto.mouse_click_blank()
-                self.first_battle = True
-                continue
+        if self._run_starlight():
+            continue
 
-            # 在战斗中
-            if auto.find_element("battle/more_information_assets.png") or auto.find_element(
-                "battle/in_mirror_assets.png"
-            ):
-                self.battle_total_time += battle.fight(self.avoid_skill_3, self.defense_first_round)
-                continue
-            elif battle.identify_keyword_turn and self.LOOP_COUNT - main_loop_count < 5:
-                if auto.find_element("battle/turn_assets.png") or auto.find_element("battle/in_mirror_assets.png"):
-                    self.battle_total_time += battle.fight(self.avoid_skill_3, self.defense_first_round)
-                    continue
-            else:
-                turn_bbox = ImageUtils.get_bbox(ImageUtils.load_image("battle/turn_assets.png"))
-                turn_ocr_result = auto.find_text_element("turn", turn_bbox)
-                if turn_ocr_result is not False:
-                    self.battle_total_time += battle.fight(self.avoid_skill_3, self.defense_first_round)
-                    continue
-            if auto.find_element("battle/win_rate_card.png") and auto.find_element("battle/gear_right.png"):
-                self.battle_total_time += battle.fight(self.avoid_skill_3, self.defense_first_round)
-                continue
+        if self._run_ego_gift_acquisition(main_loop_count):
+            continue
 
-            # 镜牢星光
-            if auto.find_element("mirror/road_to_mir/dreaming_star/coins_assets.png", threshold=0.9):
-                self.enter_mir_with_star()
-                continue
+        if self._run_ego_gift_confirm():
+            continue
 
-            # 如果遇到选择ego饰品的情况
-            if auto.find_element("mirror/road_in_mir/acquire_ego_gift_card.png"):
-                self.acquire_ego_gift()
-                continue
-            if (
-                main_loop_count < 50
-                and auto.find_element("mirror/road_in_mir/acquire_ego_gift_box_assets.png", model="clam")
-                and auto.find_element(
-                    "mirror/road_in_mir/acquire_ego_gift_refuse_assets.png",
-                    model="clam",
-                )
-            ):
-                self.acquire_ego_gift(type=2)
-                continue
-            if main_loop_count < 30 and auto.find_language_text("拒绝饰品", "refuse"):
-                self.acquire_ego_gift(type=2)
-                continue
+        if self._run_event():
+            continue
 
-            # 如果遇到获取ego饰品的情况
-            if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"):
-                continue
+        if self._run_shop():
+            continue
 
-            # 遇到事件
-            if auto.click_element("event/skip_assets.png", times=6):
-                self.event_handling()
-                continue
+        if self._run_reward_card():
+            continue
 
-            # 商店事件
-            if auto.find_element("mirror/shop/shop_coins_assets.png"):
-                self.shop_total_time += self.in_shop()
-                continue
+        if self._run_enter_mirror():
+            continue
 
-            # 选择奖励卡
-            if auto.find_element("mirror/road_in_mir/select_encounter_reward_card_assets.png"):
-                if self.reward_cards:
-                    get_reward_card(self.reward_cards_select)
-                else:
-                    get_reward_card()
-                continue
+        if self._run_init_ego_gift():
+            continue
 
-            # 在主界面时，开始进入镜牢
-            if auto.click_element("home/drive_assets.png") or auto.find_element("home/window_assets.png"):
-                sleep(0.5)
-                if self.road_to_mir() and self.bequest_from_the_previous_game:
-                    break
-                continue
-            # 在镜牢界面，进入镜牢
-            if auto.click_element("mirror/road_to_mir/enter_assets.png"):
-                if self.road_to_mir() and self.bequest_from_the_previous_game:
-                    break
-                continue
+        if self._run_observe_ego_gift():
+            continue
 
-            # 初始饰品选择
-            if auto.find_element("mirror/road_to_mir/activate_gift_search_on_assets.png") or auto.find_element(
-                "mirror/road_to_mir/activate_gift_search_off_assets.png"
-            ):
-                self.select_init_ego_gift()
-                continue
+        if self._run_close_infinity():
+            continue
 
-            if auto.find_element(
-                "mirror/road_to_mir/observe_ego_gift/observe_bleed_assets.png", model="clam"
-            ) or auto.find_element("mirror/road_to_mir/observe_ego_gift/observe_burn_assets.png", model="clam"):
-                self.select_observe_ego_gift()
-                continue
+        if self._run_dismiss_prompt():
+            continue
 
-            # 取消十层
-            if auto.find_element("mirror/infinity_mirror_assets.png"):
-                auto.click_element("mirror/infinity_mirror_close_assets.png")
-                continue
-
-            if auto.find_element("home/first_prompt_assets.png", model="clam") and auto.find_element(
-                "home/back_assets.png", model="normal"
-            ):
-                auto.click_element("home/back_assets.png")
-                continue
-
-            # 防卡死
+        # 防卡死（回退）
             auto.mouse_click_blank()
             retry()
             main_loop_count -= 1
